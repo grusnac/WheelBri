@@ -563,6 +563,25 @@ TEST(MappingEdit, CombinedPedalsAreWrittenWhenTheyChange) {
     EXPECT_FALSE(load(writeMapping(text, model).text).combinedPedals);
 }
 
+// [tm_rgt] and the levers: no lines while the mode is the default and nothing drives a lever (every target but the RGT
+// keeps its file as it was); written when they change, and read back the same.
+TEST(MappingEdit, TheRgtModeAndLeversAreWrittenWhenTheyChange) {
+    MappingModel model = mappingModel(load(kConfig));
+    std::string text = writeMapping(kConfig, model).text;
+    EXPECT_EQ(text.find("[tm_rgt]"), std::string::npos) << text;
+    EXPECT_EQ(text.find("lever]"), std::string::npos) << text;
+    model.rgt = {RgtAxes::Three, RgtPedalSet::Levers};
+    model.axes[MappingModel::kLeftLever] = SourceRef{{}, 4};
+    model.invert[MappingModel::kRightLever] = true;
+    text = writeMapping(kConfig, model).text;
+    const EmulatorConfig back = load(text);
+    EXPECT_EQ(back.rgt, model.rgt) << text;
+    EXPECT_EQ(back.mapper.leftLever.sourceAxis, 4);
+    EXPECT_EQ(back.mapper.rightLever.sourceAxis, kUnmapped);
+    EXPECT_TRUE(back.mapper.rightLever.invert);
+    EXPECT_EQ(mappingModel(back).axes[MappingModel::kLeftLever], model.axes[MappingModel::kLeftLever]);
+}
+
 TEST(MappingEdit, TheAntiDeadZoneIsWrittenWhenItChanges) {
     MappingModel model = mappingModel(load(kConfig));
     EXPECT_EQ(model.antiDeadZonePercent, 0.0F);

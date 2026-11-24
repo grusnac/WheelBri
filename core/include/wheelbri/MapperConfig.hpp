@@ -100,6 +100,8 @@ struct MapperConfig {
     PedalConfig throttle;
     PedalConfig brake;
     PedalConfig clutch;
+    PedalConfig leftLever;    // [left_lever] / [right_lever]: the RGT's progressive levers (other targets have none)
+    PedalConfig rightLever;
     HatButtons hatButtons;
 
     // What the physical wheel's buttons are called ("Start", "L paddle"), indexed by source button; empty =

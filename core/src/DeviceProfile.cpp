@@ -35,6 +35,12 @@ const std::vector<std::uint8_t> kG27NativeOrder = {
     18, 20, 19, 21,                  // R Wheel 2, L Wheel 2, R Wheel 3, L Wheel 3
 };
 
+// A Logitech shifter's gears: 1-6 from `first`, reverse after them; no Gear 7.
+std::array<int, kGearCount> logitechGears(const std::size_t first) {
+    const int f = static_cast<int>(first);
+    return {f, f + 1, f + 2, f + 3, f + 4, f + 5, -1, f + 6};
+}
+
 }  // namespace
 
 std::string toString(const Guid& guid) {
@@ -97,9 +103,48 @@ TargetReport DeviceProfile::encode(const WheelState& state) const {
     report.throttle = encodePedal(state.throttle);
     report.brake = encodePedal(state.brake);
     report.clutch = encodePedal(state.clutch);
+    report.leftLever = encodePedal(state.leftLever);
+    report.rightLever = encodePedal(state.rightLever);
     report.buttons = state.buttons & buttonMask_;   // a mapped button the wheel does not have never reaches the game
+    // (The Force button stays in: the Live tab shows it pressed; the game never gets it, as the wheel reports
+    // reportedButtonCount() buttons.)
     report.hat = state.hat;
     report.combined = combinedPedals(report);
+    return report;
+}
+
+TargetReport withRgtMode(TargetReport report, const RgtMode mode) {
+    constexpr std::int32_t kRest = 65535;   // the RGT's pedals and levers rest at the top
+    const bool levers = mode.pedalSet == RgtPedalSet::Levers;
+    // Pressed further = lower (released at the top): a pedal and its lever together read as the one pressed further.
+    const std::int32_t gas = levers ? std::min(report.throttle, report.rightLever) : report.throttle;
+    const std::int32_t brake = levers ? std::min(report.brake, report.leftLever) : report.brake;
+    switch (mode.effectiveAxes()) {
+        case RgtAxes::Two: {
+            TargetReport pair;
+            pair.throttle = gas;
+            pair.brake = brake;
+            report.brake = combinedPedals(pair);
+            report.throttle = kRest;
+            report.clutch = kRest;
+            report.rightLever = kRest;
+            break;
+        }
+        case RgtAxes::Three:
+            report.brake = brake;
+            report.throttle = gas;
+            report.clutch = kRest;
+            report.rightLever = kRest;
+            break;
+        case RgtAxes::Five:
+            if (levers) {
+                report.clutch = report.leftLever;   // Slider 0
+            } else {
+                report.rightLever = kRest;          // Slider 1: off with the clutch
+            }
+            break;
+    }
+    report.leftLever = kRest;
     return report;
 }
 
@@ -166,6 +211,10 @@ int DeviceProfile::coreButton(const CoreButton button) const {
     return index < spec_.coreButtons.size() ? spec_.coreButtons[index] : -1;
 }
 
+int DeviceProfile::gearButton(const std::size_t gear) const {
+    return gear < spec_.gearButtons.size() ? spec_.gearButtons[gear] : -1;
+}
+
 std::string_view DeviceProfile::buttonName(const std::size_t index) const {
     return index < spec_.buttonNames.size() ? std::string_view(spec_.buttonNames[index]) : std::string_view();
 }
@@ -203,6 +252,7 @@ DeviceProfileSpec g920Spec() {
         {"SHIFTER", {12, 13, 14, 15, 16, 17, 18}, Place::Below},
     };
     spec.coreButtons = {0, 1, 2, 3, 5, 4};   // A, B, X, Y, L Paddle, R Paddle
+    spec.gearButtons = logitechGears(kG920FirstGear);
     return spec;
 }
 
@@ -238,6 +288,7 @@ DeviceProfileSpec g25Spec() {
     spec.nativeButtonOrder = kG25NativeOrder;
     // An Xbox-style rim's A, B, X, Y on the black diamond by place (bottom 17, right 18, left 16, top 15); paddles.
     spec.coreButtons = {17, 18, 16, 15, 5, 4};
+    spec.gearButtons = logitechGears(kG25FirstGear);
     return spec;
 }
 
@@ -269,6 +320,7 @@ DeviceProfileSpec g27Spec() {
     };
     spec.nativeButtonOrder = kG27NativeOrder;
     spec.coreButtons = {17, 18, 16, 15, 5, 4};   // as the G25's: Black 1-4 are its diamond's top, left, bottom, right
+    spec.gearButtons = logitechGears(kG27FirstGear);
     return spec;
 }
 
@@ -292,6 +344,59 @@ DeviceProfileSpec g923Spec() {
     return spec;
 }
 
+DeviceProfileSpec rgtSpec() {
+    DeviceProfileSpec spec;
+    spec.identity.shortName = "RGT";
+    spec.identity.vendorId = 0x044F;
+    spec.identity.productId = 0xB653;
+    spec.identity.productName = "RGT Force Feedback Pro";
+    spec.identity.rotationDeg = 270.0F;
+    spec.identity.centringSpring = true;   // Thrustmaster's Control Panel had one ("By the wheel", 0-100%)
+    spec.steeringRange = {0, 65535};
+    spec.pedalRange = {0, 65535};
+    spec.pedalsReleasedAtMax = true;   // a real RGT's pedals rest at 255 (linux-input 2008, evtest)
+    // As printed on the real wheel (Thrustmaster's front view): the paddles say DOWN and UP, the stick's base + and -;
+    // the rim's buttons carry nothing, so their number.
+    spec.buttonNames = {"Down",     "Up",       "Button 3", "Button 4", "Button 5",  "Button 6", "Button 7",
+                        "Button 8", "Stick +",  "Stick -",  "Button 11", "Button 12", "Force"};
+    spec.forceButton = true;   // the last: WheelBri's own, never reported (kRgtForceButton)
+    using Place = ButtonGroup::Place;
+    spec.buttonGroups = {
+        {"PADDLES", {0, 1}, Place::Left},               // DOWN, UP
+        {"RIM", {2, 3, 4, 5, 6, 7}, Place::Right},      // which is which on the rim: not known yet
+        {"STICK", {8, 9, 10, 11}, Place::Below},        // the sequential stick (up, down a gear) and its base's two
+        {"FORCE", {kRgtForceButton}, Place::Below},     // centring spring off / on
+    };
+    // An Xbox-style rim's A, B, X, Y where Race Driver: GRID's RGT preset has Select (6), Back (5), Boost (4) and
+    // Look back (3); the paddles on the paddles.
+    spec.coreButtons = {5, 4, 3, 2, 0, 1};
+    return spec;
+}
+
+DeviceProfileSpec tmxSpec() {
+    DeviceProfileSpec spec;
+    spec.identity.shortName = "TMX";
+    spec.identity.vendorId = 0x044F;
+    spec.identity.productId = 0xB67F;
+    spec.identity.productName = "Thrustmaster TMX Racing Wheel";
+    spec.identity.rotationDeg = 900.0F;   // 270-900 (Thrustmaster's product page)
+    spec.steeringRange = {0, 65535};
+    spec.pedalRange = {0, 65535};
+    spec.pedalsReleasedAtMax = true;   // a real TMX's pedals rest at 1023 of 0..1023 (captures/tmx)
+    // The paddles as DiRT Rally 2.0's preset uses them; the rim's buttons by number until their printed names are
+    // known.
+    spec.buttonNames = {"Down",      "Up",        "Button 3",  "Button 4",  "Button 5",  "Button 6", "Button 7",
+                        "Button 8",  "Button 9",  "Button 10", "Button 11", "Button 12", "Button 13"};
+    using Place = ButtonGroup::Place;
+    spec.buttonGroups = {
+        {"PADDLES", {0, 1}, Place::Left},
+        {"RIM", {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}, Place::Right},   // which is which: not known yet
+    };
+    // A and B where DiRT Rally 2.0's TMX preset has menu select (4) and menu back (8); X and Y: not known yet.
+    spec.coreButtons = {4, 8, -1, -1, 0, 1};
+    return spec;
+}
+
 std::unique_ptr<IDeviceProfile> makeProfile(const std::string_view name) {
     if (name == "g920") {
         return std::make_unique<DeviceProfile>(g920Spec());
@@ -304,6 +409,12 @@ std::unique_ptr<IDeviceProfile> makeProfile(const std::string_view name) {
     }
     if (name == "g923") {
         return std::make_unique<DeviceProfile>(g923Spec());
+    }
+    if (name == "tm_rgt") {
+        return std::make_unique<DeviceProfile>(rgtSpec());
+    }
+    if (name == "tmx") {
+        return std::make_unique<DeviceProfile>(tmxSpec());
     }
     return nullptr;
 }

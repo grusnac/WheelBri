@@ -101,7 +101,9 @@ ServiceLoop::ServiceLoop(Parts parts)
       telemetry_(parts.telemetry),
       print_(parts.print),
       window_(parts.window),
-      control_(parts.settings) {}
+      control_(parts.settings) {
+    if (parts.forceButton) forceButton_.emplace(*parts.forceButton, parts.centringSpringPercent);
+}
 
 std::string ServiceLoop::pollingNote() const {
     return std::to_string(control_.settings().pollNs / kNsPerMs) + " ms";
@@ -181,6 +183,7 @@ void ServiceLoop::writeTelemetry() {
     sample.state = pipeline_.lastState();
     sample.report = pipeline_.lastPublished();
     sample.combinedPedals = pipeline_.combinedPedals();
+    sample.rgtMode = pipeline_.rgtMode();
     sample.ffb = ffb_ != nullptr ? &ffb_->controller() : nullptr;
     sample.periodUs = static_cast<double>(lastPeriodNs_) / 1000.0;
     sample.workUs = static_cast<double>(lastWorkNs_) / 1000.0;
@@ -308,6 +311,12 @@ int ServiceLoop::run() {
         system_.passDone(tickStart, control_.wokeBy());
         stages.lap(TickStages::Pipeline, mark, system_.nowNs());
         ++ticks;
+        if (forceButton_ && ffb_ != nullptr) {
+            if (const auto percent = forceButton_->update(pipeline_.lastState().buttons)) {
+                ffb_->setCentringSpring(*percent);
+                WE_LOG_INFO(log(), "Force button: centring spring {}", *percent > 0.0F ? "on" : "off");
+            }
+        }
         if (ffb_ != nullptr) ffb_->pump(system_.nowNs());
         watchTheGame();
         if (const LogLevel level = AppLogLevel::shared().current();

@@ -28,6 +28,8 @@ std::array<std::uint8_t, StatePacket::kPacketSize> encode(const StatePacket& pac
     writer.u32(packet.report.buttons);
     writer.i8(packet.report.hat);
     writer.i32(packet.report.combined);
+    writer.i32(packet.report.leftLever);
+    writer.i32(packet.report.rightLever);
     return bytes;
 }
 
@@ -54,6 +56,8 @@ std::optional<StatePacket> decodeStatePacket(const std::span<const std::uint8_t>
     const std::int8_t hat = reader.i8();
     packet.report.hat = hat >= 0 && hat <= 7 ? hat : kHatCentered;
     packet.report.combined = axis();
+    packet.report.leftLever = axis();
+    packet.report.rightLever = axis();
     return packet;
 }
 

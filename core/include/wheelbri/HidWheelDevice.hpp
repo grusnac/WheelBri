@@ -6,6 +6,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 #include <span>
 #include <string>
 #include <string_view>
@@ -36,6 +37,18 @@ inline constexpr std::uint16_t kG27ProductId = 0xC29B;
 // no padding, the PC-mode ids (046D:C26E; Xbox mode, C26D, is an Xbox controller, not this).
 inline constexpr std::uint16_t kG923VendorId = 0x046D;
 inline constexpr std::uint16_t kG923ProductId = 0xC26E;
+// The virtual RGT (Thrustmaster RGT Force Feedback Pro Clutch Edition, docs/target-rgt.md): a real one's ids
+// (044F:B653) and product string, the same HID PID block, its 10 buttons, and five axes as games read the real one in
+// its 5-axis mode (VirtualWheel::rgtAxes). Not the real wheel's own descriptor (a cut-down HID PID set that Windows'
+// driver cannot drive, tests/data/rgt): WheelBri's, so force feedback needs no Thrustmaster software.
+inline constexpr std::uint16_t kRgtVendorId = 0x044F;
+inline constexpr std::uint16_t kRgtProductId = 0xB653;
+// The virtual TMX (Thrustmaster TMX PRO Force Feedback, docs/target-tmx.md): a real one's ids (044F:B67F, the PC mode
+// its Xbox mode, B67E, is switched out of) and product string, WheelBri's HID PID block, its 13 buttons and four axes
+// as games read it (VirtualWheel::brakeOnY). On a real PC Thrustmaster's driver (tmhidusb.sys) also shows Windows a
+// HID PID wheel (captures/tmx), so force feedback needs no Thrustmaster software.
+inline constexpr std::uint16_t kTmxVendorId = 0x044F;
+inline constexpr std::uint16_t kTmxProductId = 0xB67F;
 inline constexpr std::uint8_t kWheelInputReportId = 0x01;
 inline constexpr std::size_t kWheelInputReportSize = 13;   // report ID + 4 axes x 2 + 3 button bytes + hat
 // A wheel with combined pedals (VirtualWheel::combinedPedals) has a fifth axis (its clutch) after the fourth: 15 bytes.
@@ -81,6 +94,28 @@ struct VirtualWheel {
     // straight to the HID device. Its descriptor has no report IDs and no HID PID: the same input items as the
     // other identity, and one 7-byte vendor output report (page 0xFF00). The driver logs what arrives there.
     bool classic = false;
+    // The RGT's axes (Thrustmaster's 5-axis mode, the pedal switch on 3 P): wheel X, brake Y, throttle Rz, clutch
+    // Slider 0, the right lever Slider 1 (at rest), as Race Driver: GRID's RGT preset reads them. The same five axes
+    // as combinedPedals, carrying other things.
+    bool rgtAxes = false;
+    // Throttle Rz and brake Y (the G920's the other way round), the clutch on Slider: the TMX, as DiRT Rally 2.0's TMX
+    // preset reads it (captures/tmx).
+    bool brakeOnY = false;
+    // Whether the maker's own DirectInput force feedback driver speaks HID PID, so its OEMForceFeedback entry stays
+    // and drives the virtual wheel when installed (LogitechFfbDriver.hpp's keepsOtherDrivers): the TMX, Thrustmaster's
+    // tmpid.dll (captures/tmx). Whether it does so without Thrustmaster's kernel driver: not tested yet.
+    bool makerPidDriver = false;
+    // Whether the maker's own force feedback driver, which does not speak HID PID, keeps its OEMForceFeedback entry and
+    // drives the virtual wheel when installed: the RGT, Thrustmaster's tmffbdrv.dll (rgt-clutch-plan.md); WheelBri
+    // does not read what it sends yet. The maker's installer also writes the same OEMName WheelBri does, so WheelBri
+    // marks the values it writes in that OEM key ("WheelBri") and never writes over or removes the maker's
+    // (writeDirectInputEntries, the uninstaller's oemEntries, clean-pc.ps1).
+    bool makerDriver = false;
+    // The maker's identity (makerVirtualWheel: the RGT's "rgt-tm"): as the real wheel, for the maker's own force
+    // feedback driver, which talks the real wheel's protocol: its report descriptor as captured (tests/data/rgt), its
+    // input report, and every output and feature report logged by the driver as it comes (not decoded yet); the
+    // feature reports a real one answered at plug-in are answered the same (makerFeature).
+    bool makerIdentity = false;
 };
 [[nodiscard]] std::span<const VirtualWheel> virtualWheels();
 // By target_profile ("g920", "g25", "g27", "g923"), or by a hardware id (any case); null when it is none of them.
@@ -89,8 +124,38 @@ struct VirtualWheel {
 // The classic identity of the G25 or G27 (VirtualWheel::classic: hardware id wheelbri\G25_LOGI, wheelbri\G27_LOGI;
 // the same profile, instances, ids and names); null for any other profile.
 [[nodiscard]] const VirtualWheel* classicVirtualWheel(std::string_view profile);
+// The maker's identity of the RGT (VirtualWheel::makerIdentity: hardware id wheelbri\TM_RGT_TM, request name
+// "tm_rgt-tm"; the same profile, instances, ids and names), used when Thrustmaster's driver is installed
+// (makerFfbDriverInstalled); null for any other profile.
+[[nodiscard]] const VirtualWheel* makerVirtualWheel(std::string_view profile);
+// A feature report the maker's identity answers as the real wheel did at plug-in (tests/data/rgt: 0x81 01 21 ff ff,
+// 0x82 50 5a, 0x86 00 01, 0x88 00 02): [report ID, data...] into `out`; its size, 0 for any other report (or wheel)
+// or when `out` is too small.
+[[nodiscard]] std::size_t makerFeature(const VirtualWheel& wheel, std::uint8_t reportId, std::span<std::uint8_t> out);
+
+// The maker's identity's feature reports as a real device keeps them: a read gives what was last written to that report
+// (Thrustmaster's driver writes 0x81 and then reads it back, again and again: 2026-11-23, wheelbri-driver-*-27), the
+// plug-in value (makerFeature) until then. Up to kMaxBytes of a report kept. Thread-safe (the driver's queue is
+// parallel).
+class MakerFeatures {
+public:
+    static constexpr std::size_t kMaxBytes = 8;
+    void written(std::uint8_t reportId, std::span<const std::uint8_t> data);
+    // [report ID, data...] into `out`: its size; 0 for a wheel that is not a maker's identity, a report neither written
+    // nor answered at plug-in, or an `out` too small.
+    [[nodiscard]] std::size_t read(const VirtualWheel& wheel, std::uint8_t reportId, std::span<std::uint8_t> out) const;
+
+private:
+    struct Kept {
+        std::array<std::uint8_t, kMaxBytes> data{};
+        std::size_t size = 0;
+        bool written = false;
+    };
+    mutable std::mutex lock_;
+    std::array<Kept, 256> kept_{};
+};
 // The name a CreateVirtualWheel request gives a wheel (HelperProtocol.hpp): its profile, or the classic identity's
-// "g25-logi", "g27-logi"; and the wheel for such a name (null when it is none).
+// "g25-logi", "g27-logi", or the maker's identity's "tm_rgt-tm"; and the wheel for such a name (null when it is none).
 [[nodiscard]] std::string requestNameOf(const VirtualWheel& wheel);
 [[nodiscard]] const VirtualWheel* virtualWheelForRequestName(std::string_view name);
 // Whether vid:pid is one of the virtual wheels' ids (never hidden: games are meant to see it).
@@ -127,7 +192,8 @@ inline constexpr std::uint8_t kHidPpPidShift = 0x10;
 // Where a report the host sends goes, by its report ID: the wheel's HID PID (`id` as HidPid knows it), its HID++,
 // or neither.
 struct ReportRoute {
-    enum class To { Pid, HidPp, Classic, None };   // Classic: any report of a classic wheel (`id` as sent)
+    // Classic: any report of a classic wheel; Maker: any output or feature report of a maker's identity (`id` as sent).
+    enum class To { Pid, HidPp, Classic, Maker, None };
     To to = To::None;
     std::uint8_t id = 0;
 };
@@ -146,7 +212,8 @@ struct ReportRoute {
 // reportDescriptorFor with the clutch's Usage Dial instead of the second Slider (same report bytes). Wine's dinput
 // reads each axis by its usage (HidP_GetUsageValue), so with two Sliders both read the first: in ACC the clutch was
 // the combined pedals, at half at rest (2026-11-07). Wine makes Slider and Dial Slider 0 and Slider 1 in the
-// descriptor's order, as Windows does the two Sliders. Every other wheel: reportDescriptorFor.
+// descriptor's order, as Windows does the two Sliders. The RGT's likewise (its right lever, Slider 1, as Dial: the real
+// RGT's own descriptor has Slider and Dial). Every other wheel: reportDescriptorFor.
 [[nodiscard]] std::span<const std::uint8_t> protonReportDescriptor(const VirtualWheel& wheel);
 
 // The input report for `report` (G920 ranges: steering 0..65535 centred at 32768, pedals 0..65535 with

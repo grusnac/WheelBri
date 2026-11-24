@@ -48,6 +48,21 @@ public:
     // route. lastReport() stays as mapped. Safe from another thread; the next tick uses it.
     void setCombinedPedals(const bool on) { combinedPedals_.store(on, std::memory_order_relaxed); }
     [[nodiscard]] bool combinedPedals() const { return combinedPedals_.load(std::memory_order_relaxed); }
+    // The RGT's axis mode and pedal set ([tm_rgt]; withRgtMode), for an RGT target only; nullopt for every other. With a
+    // mode the published pedals are the mode's and the combined pedals and the pedal route do not apply. lastReport()
+    // stays as mapped. Safe from another thread; the next tick uses it.
+    void setRgtMode(const std::optional<RgtMode> mode) {
+        rgtMode_.store(mode ? static_cast<std::uint8_t>(static_cast<unsigned>(mode->axes) |
+                                                        (mode->pedalSet == RgtPedalSet::Clutch ? 0x10U : 0U))
+                            : std::uint8_t{0},
+                       std::memory_order_relaxed);
+    }
+    [[nodiscard]] std::optional<RgtMode> rgtMode() const {
+        const std::uint8_t packed = rgtMode_.load(std::memory_order_relaxed);
+        if (packed == 0) return std::nullopt;
+        return RgtMode{static_cast<RgtAxes>(packed & 0x0FU),
+                       (packed & 0x10U) != 0 ? RgtPedalSet::Clutch : RgtPedalSet::Levers};
+    }
     // The anti-dead zone in percent ([steering] anti_deadzone, or the running game's: AntiDeadZone.hpp), 0 = off:
     // applied to the published steering only; lastState() and lastReport() stay as mapped. Safe from another thread;
     // the next tick uses it.
@@ -111,6 +126,7 @@ private:
     std::atomic<const Mapper*> gameMapper_{nullptr};
     std::atomic<bool> nativeButtons_{false};
     std::atomic<bool> combinedPedals_{false};
+    std::atomic<std::uint8_t> rgtMode_{0};   // 0: not the RGT; else its axes | 0x10 for the clutch
     std::atomic<float> antiDeadZone_{0.0F};
     std::atomic<std::uint32_t> pedalRoute_{0x00020100U};   // PedalRoute packed: straight through
     std::uint64_t publishFailures_ = 0;

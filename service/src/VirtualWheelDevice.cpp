@@ -220,11 +220,41 @@ void removeOwnAxisEntries(HKEY root, const std::wstring& path, const VirtualWhee
 }
 
 void removeClassicEntry(HKEY root, const VirtualWheel& wheel);   // below
+bool setMark(HKEY key);                                          // below
+bool hasMark(HKEY root, const std::wstring& path);               // below
+
+// Whether the OEM key in `root` is the maker's own (VirtualWheel::makerDriver): an OEMName WheelBri did not mark, next
+// to what only the maker's installer writes there (its OEMForceFeedback entry, its "Thrustmaster" key). An unmarked
+// OEMName alone is WheelBri's, from before it marked them: that one it takes over.
+bool makersOwnOemEntry(HKEY root, const std::wstring& path) {
+    if (RegGetValueW(root, path.c_str(), L"OEMName", RRF_RT_REG_SZ, nullptr, nullptr, nullptr) != ERROR_SUCCESS) {
+        return false;
+    }
+    if (hasMark(root, path)) return false;
+    for (const wchar_t* sub : {L"OEMForceFeedback", L"Thrustmaster"}) {
+        HKEY key = nullptr;
+        if (RegOpenKeyExW(root, (path + L"\\" + sub).c_str(), 0, KEY_READ, &key) == ERROR_SUCCESS) {
+            RegCloseKey(key);
+            return true;
+        }
+    }
+    return false;
+}
 
 void writeDirectInputEntries(const bool on, const std::vector<HKEY>& hives, const VirtualWheel& wheel) {
     const std::wstring path = oemKey(wheel);
     const std::wstring name = widen(wheel.oemName);
     for (HKEY root : hives) {
+        const char* hive = root == HKEY_CURRENT_USER ? "HKCU" : "HKLM";
+        // A maker's own entry (the same OEMName as WheelBri's) is never written over nor cleared: DirectInput already
+        // gives the wheel that name from it.
+        if (wheel.makerDriver && makersOwnOemEntry(root, path)) {
+            if (on) {
+                WE_LOG_INFO(log(), "DirectInput: the {}'s maker's own entry is in {}: WheelBri leaves it as it is",
+                            wheel.instancePrefix, hive);
+            }
+            continue;
+        }
         HKEY key = nullptr;
         if (RegCreateKeyExW(root, path.c_str(), 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS) {
             continue;
@@ -235,7 +265,8 @@ void writeDirectInputEntries(const bool on, const std::vector<HKEY>& hives, cons
             RegSetValueExW(key, L"OEMName", 0, REG_SZ, reinterpret_cast<const BYTE*>(name.c_str()),
                            static_cast<DWORD>((name.size() + 1) * sizeof(wchar_t)));
             RegSetValueExW(key, L"OEMData", 0, REG_BINARY, data.data(), static_cast<DWORD>(data.size()));
-        } else {
+            if (wheel.makerDriver) setMark(key);   // these values are WheelBri's (the uninstaller, clean-pc.ps1)
+        } else if (!wheel.makerDriver || hasMark(root, path)) {
             RegDeleteValueW(key, L"OEMData");
         }
         RegCloseKey(key);
@@ -388,7 +419,8 @@ void handleClassicEntry(const std::vector<HKEY>& hives, const VirtualWheel& whee
 // The virtual wheel's OEMForceFeedback entry, in each of `hives` (LogitechFfbDriver.hpp). For the G920 and G923
 // Logitech's entry stays when its software wrote one (in either hive: both are read, though the WheelBri Helper
 // handles HKLM and the app HKCU), and Windows' own HID PID entry goes while it is there, since DirectInput takes
-// HKCU's first. For the G25 and G27 another program's entry goes. WheelBri's own old copy always goes. Logitech's
+// HKCU's first. Thrustmaster's entry for the TMX stays the same way (VirtualWheel::makerPidDriver). For the G25 and
+// G27 another program's entry goes. WheelBri's own old copy always goes. Logitech's
 // software writes its entry back every few seconds while it runs (hence the watchers below): a note a minute at
 // most per hive for removals, one line per hive whenever what stays changes.
 void handleForeignForceFeedbackDriver(const std::vector<HKEY>& hives, const VirtualWheel& wheel) {
@@ -398,7 +430,8 @@ void handleForeignForceFeedbackDriver(const std::vector<HKEY>& hives, const Virt
     }
     const std::wstring key = oemKey(wheel);
     const std::wstring path = key + L"\\OEMForceFeedback";
-    const bool keepOthers = logitech_ffb::keepsOtherDrivers(wheel.hidpp || wheel.classic);
+    const bool keepOthers =
+        logitech_ffb::keepsOtherDrivers(wheel.hidpp || wheel.classic || wheel.makerPidDriver || wheel.makerDriver);
     bool otherInstalled = false;
     for (HKEY root : {HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE}) {
         const FfbEntry entry = readFfbEntry(root, path);
@@ -424,6 +457,12 @@ void handleForeignForceFeedbackDriver(const std::vector<HKEY>& hives, const Virt
             } else if (logitech_ffb::sameClsid(entry.clsid, logitech_ffb::kPidClsid)) {
                 WE_LOG_INFO(log(), "DirectInput: the virtual {} has Windows' HID PID driver in {}",
                             wheel.instancePrefix, hive);
+            } else if (wheel.makerDriver) {
+                // The maker's driver drives the virtual wheel; what it sends is not read yet (rgt-tm, step 7).
+                WE_LOG_WARN(log(), "DirectInput: the maker's force feedback driver {} is installed for the {} ({}): it "
+                                   "stays and drives the virtual wheel, but WheelBri does not read what it sends yet, "
+                                   "so the game's force feedback may not reach your wheel",
+                            name, wheel.instancePrefix, hive);
             } else {
                 WE_LOG_INFO(log(), "DirectInput: the virtual {} has the force feedback driver {}{} in {}: it stays",
                             wheel.instancePrefix, name,
@@ -788,6 +827,16 @@ DirectInputUserEntries::~DirectInputUserEntries() {
     writeDirectInputEntries(false, {HKEY_CURRENT_USER}, *impl_->wheel);
 }
 
+bool makerFfbDriverInstalled(const VirtualWheel& wheel) {
+    if (!wheel.makerDriver) return false;
+    const std::wstring path = oemKey(wheel) + L"\\OEMForceFeedback";
+    for (HKEY root : {HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE}) {
+        const FfbEntry entry = readFfbEntry(root, path);
+        if (logitech_ffb::isOtherDriver(entry.clsid, entry.wheelBris)) return true;
+    }
+    return false;
+}
+
 bool classicFfbDriverInstalled(const VirtualWheel& wheel) {
     const std::wstring_view clsid = logitech_ffb::classicClsid(wheel.productId);
     if (clsid.empty()) return false;
@@ -847,6 +896,8 @@ std::unique_ptr<VirtualWheelDevice> VirtualWheelDevice::create(const VirtualWhee
 std::string trueForceSdkPath() { return {}; }
 
 bool classicFfbDriverInstalled(const VirtualWheel&) { return false; }
+
+bool makerFfbDriverInstalled(const VirtualWheel&) { return false; }
 
 }  // namespace wheelbri::service
 

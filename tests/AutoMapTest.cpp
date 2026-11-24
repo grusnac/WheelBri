@@ -99,6 +99,41 @@ TEST(AutoMap, G25AndG27PutTheFaceOnTheBlackDiamond) {
     EXPECT_EQ(makeProfile("g25")->buttonName(15), "Blk top");
 }
 
+// A Moza base gives its H-pattern shifter's gears as buttons 112-119 (Gear 1 .. Gear 7, Reverse).
+Rig rigWithShifter() {
+    Rig rig = sampleRig();
+    for (std::size_t g = 0; g < kGearCount; ++g) rig.devices[0].buttons[112 + g] = {"", std::string(kGearKinds[g])};
+    return rig;
+}
+
+// The gears go on the target's gears; the Logitech shifters have no 7th, so a Rig's Gear 7 maps nowhere.
+TEST(AutoMap, TheShiftersGearsGoOnTheTargetsGears) {
+    for (const auto& [name, first] : {std::pair{"g920", kG920FirstGear}, std::pair{"g923", kG923FirstGear},
+                                      std::pair{"g25", kG25FirstGear}, std::pair{"g27", kG27FirstGear}}) {
+        const auto profile = makeProfile(name);
+        const AutoMapping found = autoMapping(rigWithShifter(), *profile, kWheelId);
+        for (std::size_t g = 0; g < 6; ++g) {
+            EXPECT_EQ(profile->buttonName(first + g), "Gear " + std::to_string(g + 1)) << name;
+            EXPECT_EQ(found.buttons[first + g], (SourceRef{{}, static_cast<int>(112 + g)})) << name << " gear " << g;
+        }
+        EXPECT_EQ(profile->buttonName(first + 6), "Gear R") << name;
+        EXPECT_EQ(found.buttons[first + 6], (SourceRef{{}, 119})) << name;
+        EXPECT_EQ(profile->gearButton(6), -1) << name;
+        for (const SourceRef& source : found.buttons) EXPECT_NE(source, (SourceRef{{}, 118})) << name;
+        EXPECT_TRUE(found.notices.empty()) << name;
+    }
+}
+
+// A line wins over the Rig for a gear too, as for any button.
+TEST(AutoMap, AGearsLineWins) {
+    EmulatorConfig config =
+        loadConfig("[emulator]\nfrom_rig = true\ntarget_profile = g920\n[buttons]\ntarget_12 = 30\n");
+    (void)applyRig(config, rigWithShifter());
+    EXPECT_EQ(config.mapper.buttonMap[12], 30);    // Gear 1: the line's
+    EXPECT_EQ(config.mapper.buttonMap[13], 113);   // Gear 2: the Rig's
+    EXPECT_EQ(config.mapper.buttonMap[18], 119);   // Gear R: the Rig's Reverse
+}
+
 TEST(AutoMap, AKindOnTwoControlsMapsNeither) {
     Rig rig = sampleRig();
     rig.devices[1].buttons[0] = {"", "A"};   // a button box's A too
@@ -238,10 +273,11 @@ TEST(AutoMap, TheMappingTabWritesOnlyWhatTheUserPicked) {
 
 // Only the kinds the Rig maps by itself are one control's at most.
 TEST(AutoMap, WhichKindsAreOneControlsOnly) {
-    for (const char* kind : {"Steering", "Throttle", "Brake", "Clutch", "D Up", "D Left", "A", "Y", "R Paddle"}) {
+    for (const char* kind : {"Steering", "Throttle", "Brake", "Clutch", "D Up", "D Left", "A", "Y", "R Paddle",
+                             "Gear 1", "Gear 7", "Reverse"}) {
         EXPECT_TRUE(isAutoKind(kind)) << kind;
     }
-    for (const char* kind : {"", "Handbrake", "Axis", "Button", "Horn", "throttle"}) {
+    for (const char* kind : {"", "Handbrake", "Axis", "Button", "Horn", "throttle", "Shift up", "Gear R"}) {
         EXPECT_FALSE(isAutoKind(kind)) << kind;
     }
 }

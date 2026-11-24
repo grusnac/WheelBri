@@ -25,6 +25,7 @@
 #include "SenderProbe.hpp"
 
 #include "wheelbri/ClassicFfb.hpp"
+#include "wheelbri/MakerFfb.hpp"
 #include "wheelbri/FfbPacket.hpp"
 #include "wheelbri/HidWheelDevice.hpp"
 #include "wheelbri/HidPid.hpp"
@@ -385,6 +386,10 @@ public:
     // A classic wheel's (VirtualWheel::classic) force feedback: Logitech's older-wheel driver's classic commands
     // (ClassicFfb.hpp); null otherwise.
     std::unique_ptr<wheelbri::ClassicFfb> classicFfb;
+    // A maker's identity's force feedback: Thrustmaster's driver's force reports (MakerFfb.hpp); null otherwise.
+    std::unique_ptr<wheelbri::MakerFfb> makerFfb;
+    // A maker's identity's (VirtualWheel::makerIdentity) feature reports, as written to it (MakerFeatures).
+    wheelbri::MakerFeatures makerFeatures;
 
     // A HID++ answer: an input report for the next read, before any state (and never dropped).
     void reply(Report report);
@@ -522,6 +527,11 @@ Link::Link(DeviceContext* device)
     }
     if (wheel != nullptr && wheel->classic) {
         classicFfb = std::make_unique<wheelbri::ClassicFfb>(
+            [this](const wheelbri::FfbPacket& p) { sendFfb(p); },
+            [](const Level level, const std::string& line) { logLine(level, line); });
+    }
+    if (wheel != nullptr && wheel->makerIdentity) {
+        makerFfb = std::make_unique<wheelbri::MakerFfb>(
             [this](const wheelbri::FfbPacket& p) { sendFfb(p); },
             [](const Level level, const std::string& line) { logLine(level, line); });
     }
@@ -802,12 +812,14 @@ void Link::run(const SOCKET sock) {
             pid.tick(now);
             if (hidppFfb) hidppFfb->tick(now);
             if (classicFfb) classicFfb->tick(now);
+            if (makerFfb) makerFfb->tick(now);
         }
         logCounts(now);
     }
     pid.stopAll(nowMs());
     if (hidppFfb) hidppFfb->stopAll(nowMs());
     if (classicFfb) classicFfb->stopAll(nowMs());
+    if (makerFfb) makerFfb->stopAll(nowMs());
     logLine(Level::Info, "stopped: " + std::to_string(pid.reportsHandled()) +
                              " force feedback reports from the game, " +
             std::to_string(pid.packetsSent()) + " packets to the service");
@@ -828,15 +840,19 @@ NTSTATUS copyToRequest(WDFREQUEST request, const void* source, size_t size) {
     return status;
 }
 
-// A feature report a classic wheel got (VirtualWheel::classic; its output reports go to ClassicFfb). Logged only: the
-// first kClassicShown at info, every one at debug.
-void logClassicReport(const char* kind, const std::uint8_t reportId, const std::span<const std::uint8_t> data) {
-    static std::atomic<unsigned> shown[2]{};
-    constexpr unsigned kClassicShown = 200;
-    const bool feature = std::strcmp(kind, "feature") == 0;
-    const unsigned n = shown[feature ? 1 : 0].fetch_add(1) + 1;
-    // No report IDs on this device: Windows hands the whole command over, its first byte where an ID would be.
-    std::string line = "classic " + std::string(kind) + " #" + std::to_string(n) + " (" +
+// A report as it came, logged only: a feature report a classic wheel got (VirtualWheel::classic; its output reports go
+// to ClassicFfb), and every output and feature report of a maker's identity (VirtualWheel::makerIdentity: what
+// Thrustmaster's driver sends the virtual RGT, to decode from a capture). The first kRawShown of each kind at info,
+// every one at debug. `who`: "classic", "rgt-tm"; `kind`: "feature", "output", "feature get".
+void logRawReport(const char* who, const char* kind, const std::uint8_t reportId,
+                  const std::span<const std::uint8_t> data) {
+    static std::atomic<unsigned> shown[2][3]{};
+    constexpr unsigned kRawShown = 200;
+    const int w = std::strcmp(who, "classic") == 0 ? 0 : 1;
+    const int k = std::strcmp(kind, "output") == 0 ? 0 : std::strcmp(kind, "feature") == 0 ? 1 : 2;
+    const unsigned n = shown[w][k].fetch_add(1) + 1;
+    // A classic wheel has no report IDs: Windows hands the whole command over, its first byte where an ID would be.
+    std::string line = std::string(who) + " " + std::string(kind) + " #" + std::to_string(n) + " (" +
                        std::to_string(data.size() + 1) + " bytes):";
     char first[4];
     std::snprintf(first, sizeof(first), " %02x", static_cast<unsigned>(reportId));
@@ -846,7 +862,7 @@ void logClassicReport(const char* kind, const std::uint8_t reportId, const std::
         std::snprintf(two, sizeof(two), " %02x", static_cast<unsigned>(b));
         line += two;
     }
-    logLine(n <= kClassicShown ? Level::Info : Level::Debug, line);
+    logLine(n <= kRawShown ? Level::Info : Level::Debug, line);
 }
 
 // Output / feature reports written by the host: the input buffer holds [report ID, data...].
@@ -1153,6 +1169,14 @@ VOID EvtIoDeviceControl(WDFQUEUE queue, WDFREQUEST request, size_t, size_t, ULON
                     command[0] = reportId;
                     std::copy(data.begin(), data.end(), command.begin() + 1);
                     ctx->link->classicFfb->command(command, nowMs());
+                } else if (route.to == wheelbri::ReportRoute::To::Maker) {
+                    logRawReport("rgt-tm", "output", reportId, data);
+                    if (ctx->link->makerFfb) {
+                        Report report(data.size() + 1);
+                        report[0] = reportId;
+                        std::copy(data.begin(), data.end(), report.begin() + 1);
+                        ctx->link->makerFfb->output(report, nowMs());
+                    }
                 }
                 WdfRequestSetInformation(request, data.size() + 1);
             }
@@ -1162,7 +1186,11 @@ VOID EvtIoDeviceControl(WDFQUEUE queue, WDFREQUEST request, size_t, size_t, ULON
             if (NT_SUCCESS(status)) {
                 const wheelbri::ReportRoute route = wheelbri::routeReport(*ctx->wheel, reportId);
                 if (route.to == wheelbri::ReportRoute::To::Pid) ctx->link->pid.setFeature(route.id, data, nowMs());
-                if (route.to == wheelbri::ReportRoute::To::Classic) logClassicReport("feature", reportId, data);
+                if (route.to == wheelbri::ReportRoute::To::Classic) logRawReport("classic", "feature", reportId, data);
+                if (route.to == wheelbri::ReportRoute::To::Maker) {
+                    ctx->link->makerFeatures.written(reportId, data);   // a read gives it back, as a real device
+                    logRawReport("rgt-tm", "feature", reportId, data);
+                }
                 WdfRequestSetInformation(request, data.size() + 1);
             }
             break;
@@ -1179,11 +1207,19 @@ VOID EvtIoDeviceControl(WDFQUEUE queue, WDFREQUEST request, size_t, size_t, ULON
             }
             if (reportId == 0) reportId = static_cast<const std::uint8_t*>(out)[0];
             const wheelbri::ReportRoute route = wheelbri::routeReport(*ctx->wheel, reportId);
-            const std::size_t written =
-                route.to == wheelbri::ReportRoute::To::Pid
-                    ? ctx->link->pid.getFeature(route.id, std::span(static_cast<std::uint8_t*>(out), outSize))
-                    : 0;
-            if (written > 0) static_cast<std::uint8_t*>(out)[0] = wheelbri::wirePidId(*ctx->wheel, route.id);
+            const std::span<std::uint8_t> answer(static_cast<std::uint8_t*>(out), outSize);
+            std::size_t written = 0;
+            if (route.to == wheelbri::ReportRoute::To::Pid) {
+                written = ctx->link->pid.getFeature(route.id, answer);
+                if (written > 0) answer[0] = wheelbri::wirePidId(*ctx->wheel, route.id);
+            } else if (route.to == wheelbri::ReportRoute::To::Maker) {
+                // What was last written to it, else as the real wheel answered at plug-in; anything else unanswered.
+                // Logged either way (the answer, or just the ID asked for).
+                written = ctx->link->makerFeatures.read(*ctx->wheel, reportId, answer);
+                logRawReport("rgt-tm", "feature get", reportId,
+                             written > 1 ? std::span<const std::uint8_t>(answer.data() + 1, written - 1)
+                                         : std::span<const std::uint8_t>());
+            }
             if (written == 0) {
                 status = STATUS_NOT_SUPPORTED;
             } else {

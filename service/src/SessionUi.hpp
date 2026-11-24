@@ -31,6 +31,8 @@ struct SessionInfo {
     MapperConfig mapper;        // at Start; the Mapping tab can change it while running (UiFrame::mapping)
     // [buttons] order: which numbers the game sees the target's buttons by (the Mapping tab shows those).
     ButtonOrder buttonOrder = ButtonOrder::Driver;
+    // The RGT's axis mode and pedal set at Start (Pipeline::rgtMode, [tm_rgt]); nullopt for every other target.
+    std::optional<RgtMode> rgtMode;
     // The accessories the mapping reads (device 1, 2, 3; empty ids = none), named from the Wheel setup tab.
     std::array<DeviceLabels, MapperConfig::kMaxAccessories> accessories{};
     FilesDisplay files;

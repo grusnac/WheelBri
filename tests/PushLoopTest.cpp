@@ -520,5 +520,39 @@ TEST(PushLoop, AGameThatNeverPlaysForceFeedbackIsSaidToIgnoreTheWheel) {
     EXPECT_FALSE(rig.frame().gameIgnoresWheel);
 }
 
+TEST(PushLoop, TheRgtsForceButtonSwitchesTheCentringSpringOffAndOn) {
+    // The RGT's Force button (target button 12; the default mapping takes the wheel's button 12): its first press
+    // stops the centring spring, the next plays it again; the spring is on from Start.
+    VirtualClock clock;
+    EmulatedPushDevice wheel("R3", clock);
+    wheel.setButton(300 * kMs, 12, true);
+    wheel.setButton(350 * kMs, 12, false);
+    wheel.setButton(600 * kMs, 12, true);
+    wheel.setButton(650 * kMs, 12, false);
+    EmulatedSocket game;   // force feedback, but the game sends nothing
+    PushLoopRig::Options options;
+    options.rgt = true;
+    options.centringSpringPercent = 40.0F;
+    PushLoopRig rig(clock, wheel, options);
+    rig.addGameFfb(game);
+    rig.run(1 * kS);
+
+    constexpr std::size_t kSpring = IFfbSink::kCentringSpringSlot;
+    using Kind = RecordingFfbSink::Call::Kind;
+    const auto calls = [&](const Kind kind, const std::uint64_t from, const std::uint64_t to) {
+        int n = 0;
+        for (const auto& c : rig.ffbSink().calls()) {
+            n += c.kind == kind && c.slot == kSpring && c.atNs >= from && c.atNs < to ? 1 : 0;
+        }
+        return n;
+    };
+    EXPECT_GE(calls(Kind::Play, 0, 300 * kMs), 1);
+    EXPECT_EQ(calls(Kind::Stop, 0, 300 * kMs), 0);
+    EXPECT_EQ(calls(Kind::Stop, 300 * kMs, 310 * kMs), 1);
+    EXPECT_EQ(calls(Kind::Play, 300 * kMs, 600 * kMs), 0);
+    EXPECT_GE(calls(Kind::Play, 600 * kMs, 610 * kMs), 1);
+    EXPECT_EQ(calls(Kind::Stop, 600 * kMs, 1 * kS), 0);
+}
+
 }  // namespace
 }  // namespace wheelbri::emulators

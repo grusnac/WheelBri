@@ -588,6 +588,26 @@ TEST(EmulatorConfig, GameRotationForAGameTheUserAdded) {
 }
 
 
+// [tm_rgt] axes and pedal_set: 5 axes with the clutch by default; anything else reported and the default kept.
+// [left_lever] / [right_lever]: read as the pedals.
+TEST(EmulatorConfig, ReadsTheRgtModeAndLevers) {
+    EXPECT_EQ(load("").config.rgt, (RgtMode{RgtAxes::Five, RgtPedalSet::Clutch}));
+    EXPECT_EQ(load("[tm_rgt]\naxes = 3\npedal_set = levers\n").config.rgt, (RgtMode{RgtAxes::Three, RgtPedalSet::Levers}));
+    EXPECT_EQ(load("[tm_rgt]\naxes = 2\n").config.rgt.axes, RgtAxes::Two);
+    for (const char* bad : {"[tm_rgt]\naxes = 4\n", "[tm_rgt]\naxes = 6\n", "[tm_rgt]\npedal_set = pedals\n",
+                            "[tm_rgt]\nmode = 5\n"}) {
+        const auto result = load(bad);
+        EXPECT_FALSE(result.errors.empty()) << bad;
+        EXPECT_EQ(result.config.rgt, RgtMode{}) << bad;
+    }
+    const auto levers = load("[left_lever]\naxis = 4\ninvert = true\n[right_lever]\naxis = 5\n");
+    EXPECT_TRUE(levers.errors.empty()) << levers.errors[0];
+    EXPECT_EQ(levers.config.mapper.leftLever.sourceAxis, 4);
+    EXPECT_TRUE(levers.config.mapper.leftLever.invert);
+    EXPECT_EQ(levers.config.mapper.rightLever.sourceAxis, 5);
+    EXPECT_EQ(load("").config.mapper.leftLever.sourceAxis, kUnmapped);
+}
+
 // [pedals] combined: off by default; on, and anything else is reported and off kept.
 TEST(EmulatorConfig, ReadsCombinedPedals) {
     EXPECT_FALSE(load("").config.combinedPedals);

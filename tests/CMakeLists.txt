@@ -31,7 +31,9 @@ add_executable(wheelbri_tests
     FfbShapeTest.cpp
     FfbUsageTest.cpp
     FileTextTest.cpp
+    FileValueMapTest.cpp
     GameDetectorTest.cpp
+    GameFilesTest.cpp
     GameProfilesTest.cpp
     GameTuningTest.cpp
     GameRotationTest.cpp
@@ -46,6 +48,8 @@ add_executable(wheelbri_tests
     HidPpTest.cpp
     HidPpFfbTest.cpp
     ClassicFfbTest.cpp
+    MakerFfbTest.cpp
+    ForceButtonTest.cpp
     InputReadStatsTest.cpp
     IniDocumentTest.cpp
     IniEditorTest.cpp

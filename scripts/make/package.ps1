@@ -210,7 +210,7 @@ Set-Content -Path (Join-Path $stage 'VERSION.txt') -Value $version -Encoding ASC
 #    list, keep them in step) must be there, so a package never fails on the user's PC; then what only the package
 #    has (the installer itself, the updates, README.md, LICENSE.txt, docs\, VERSION.txt).
 $expected = @('wheelbri.exe', 'wheelbri-service.exe', 'wheelbri-helper.exe',
-              'config\g25.ini', 'config\g27.ini', 'config\g920.ini', 'config\g923.ini', 'config\wheelbri-shim.ini',
+              'config\g25.ini', 'config\g27.ini', 'config\g920.ini', 'config\g923.ini', 'config\tm_rgt.ini', 'config\tmx.ini', 'config\wheelbri-shim.ini',
               'driver\common.ps1', 'driver\installer-steps.ps1', 'shim\dinput8.dll', 'shim\x86\dinput8.dll',
               'driver\install-driver.ps1', 'driver\uninstall-driver.ps1',
               'driver\hide\install-hide.ps1', 'driver\hide\uninstall-hide.ps1', 'driver\signing-certificate.txt') +

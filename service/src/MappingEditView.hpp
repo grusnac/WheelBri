@@ -9,6 +9,7 @@
 #include "wheelbri/DeviceLabels.hpp"
 #include "wheelbri/DeviceProfile.hpp"
 #include "wheelbri/GameProfiles.hpp"
+#include "wheelbri/GameFiles.hpp"
 #include "wheelbri/GameSettings.hpp"
 #include "wheelbri/GameTuning.hpp"
 #include "wheelbri/MappingEdit.hpp"
@@ -254,7 +255,8 @@ private:
     // line.
     [[nodiscard]] bool followsRig(Slot kind, std::size_t index) const;
 
-    void drawSource(float x, float y, float w, Slot kind, std::size_t index);
+    // `enabled` false: greyed and not clickable (the RGT's axis its pedal set does not report).
+    void drawSource(float x, float y, float w, Slot kind, std::size_t index, bool enabled = true);
     void drawPicker();
     // The Buttons sub-tab's Add button...: the target's buttons in its own groups; one adds its row to the sub-tab
     // (pendingButtons_), where its main and its secondaries are then changed.
@@ -357,6 +359,16 @@ private:
     // Save to file: the values into the game's file (never while it runs), the original kept once. A file not
     // confirmed is written on the second press only.
     void saveGameFile(std::size_t index);
+    // The Game file tab's GAME FILE section: each of the profile's sets for the Mapping tab's Target ([game_files],
+    // [game_files.<name>], GameFiles.hpp): the file, whether its lines are in it, one button that puts them all in or
+    // takes them all out, and each line with what it does (read only).
+    float drawGameFiles(std::size_t index, float y);
+    // That button: every line of the set (`set`: its index in GameProfile::gameFiles) put in (`add`) or taken out,
+    // never while the game runs, the original kept once.
+    void changeGameFiles(std::size_t index, std::size_t set, bool add);
+    // The game's own folder: the listed folder it is in (FOLDER), else its program's for a game the user added; empty
+    // when not known.
+    [[nodiscard]] std::filesystem::path gameFolderOf(const GameProfile& game) const;
     // The game `id` ended (it ran since `since`): the settings file it wrote then is its own (game_file_seen.<id>).
     void learnGameFile(const std::string& id, std::filesystem::file_time_type since);
     [[nodiscard]] std::size_t selectedGameIndex() const;
@@ -371,6 +383,12 @@ private:
     // The grid's boxes, each at `x` and `w` wide; each returns where it ends.
     float drawAntiDeadZone(float x, float top, float w);
     float drawCombinedPedals(float x, float top, float w);
+    // The RGT's instead of PEDALS (RgtMode): AXES (2 / 3 / 5, what the pedal axes report) and PEDAL SET (levers or
+    // the clutch, the pedal base's switch).
+    float drawRgtAxes(float x, float top, float w);
+    float drawRgtPedalSet(float x, float top, float w);
+    // The RGT with its levers and one of them not mapped (Start waits: leversProblem).
+    [[nodiscard]] bool leverMissing() const;
     // The anti-dead zone while `game` runs: the user's value for it, else its profile's (when it fits the target),
     // else the Mapping tab's.
     [[nodiscard]] float antiDeadZoneWhileRunning(const GameProfile& game) const;
@@ -509,6 +527,13 @@ private:
     std::filesystem::file_time_type watchedSince_{};    // since when it runs (file times), a little before
     std::string saveAnyway_;                            // the file not confirmed that Save to file was pressed for
     std::optional<GameSettingsFileState> fileState_;
+    // Each of the picked game's sets' files as last read (at most every 2 s, and when the game or its folder
+    // changes), by game, folder and file.
+    struct GameFilesRead {
+        GameFilesState state;
+        std::uint64_t ms = 0;
+    };
+    std::map<std::string, GameFilesRead> gameFilesStates_;
     std::string fileStateKey_;
     std::uint64_t fileStateReadMs_ = 0;
     // Where that file is (gameFilePlace reads app.ini and asks for Documents), for drawing: read again with the file

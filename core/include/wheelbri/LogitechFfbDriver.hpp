@@ -32,8 +32,9 @@ inline constexpr std::wstring_view kPidClsid = L"{EEC6993A-B3FD-11D2-A916-00C04F
 
 // Which wheels keep another program's driver: those Logitech's drivers can drive, the ones with HID++ (the G920, G923;
 // G HUB's driver when it is installed, Windows' HID PID driver when not) and the G25's and G27's classic identities
-// (VirtualWheel::classic: G HUB's older-wheel driver). The G25's and G27's other identity has HID PID only: another
-// program's driver goes.
+// (VirtualWheel::classic: G HUB's older-wheel driver), and those whose maker's driver speaks HID PID
+// (VirtualWheel::makerPidDriver: the TMX, Thrustmaster's tmpid.dll). The G25's and G27's other identity has HID PID
+// only: another program's driver goes.
 [[nodiscard]] constexpr bool keepsOtherDrivers(const bool hidppOrClassic) { return hidppOrClassic; }
 
 // Whether an entry names a driver other than Windows' HID PID driver (and is not WheelBri's old copy).

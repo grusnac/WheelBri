@@ -58,6 +58,10 @@ struct TargetReport {
     // Slider 0 reports, and the throttle's axis with combined pedals on (withCombinedPedals). Carried as it is, so
     // moving the pedal fields never changes it.
     std::int32_t combined = 0;
+    // The RGT's progressive levers, encoded as the pedals. After withRgtMode the RGT's four pedal axes are in
+    // brake (Y), throttle (Rz), clutch (Slider 0) and rightLever (Slider 1); leftLever is then at rest.
+    std::int32_t leftLever = 0;
+    std::int32_t rightLever = 0;
 
     friend bool operator==(const TargetReport&, const TargetReport&) = default;
 };
@@ -112,6 +116,13 @@ inline constexpr std::size_t kCoreButtonCount = 6;
 inline constexpr std::array<std::string_view, kCoreButtonCount> kCoreButtonKinds = {"A", "B", "X", "Y", "L Paddle",
                                                                                    "R Paddle"};
 
+// The H-pattern shifter's gears, which the Rig maps by itself too (AutoMap.hpp): what the Rig tab calls them ("It is"),
+// Gear 1 .. Gear 7 then Reverse. A target with fewer gears has none for the rest (the Logitech shifters: 6 and R).
+inline constexpr std::size_t kGearCount = 8;
+inline constexpr std::size_t kReverseGear = kGearCount - 1;
+inline constexpr std::array<std::string_view, kGearCount> kGearKinds = {"Gear 1", "Gear 2", "Gear 3", "Gear 4",
+                                                                       "Gear 5", "Gear 6", "Gear 7", "Reverse"};
+
 // A wheel the emulator can impersonate. New targets (T300, G920, ...) are new implementations.
 class IDeviceProfile {
 public:
@@ -123,9 +134,15 @@ public:
     // Label printed on the emulated wheel for a target button (0-based), or empty if it has none.
     // For display and logs only; nothing is decided by it.
     [[nodiscard]] virtual std::string_view buttonName(std::size_t /*index*/) const { return {}; }
-    // How many buttons the emulated wheel reports (DirectInput's dwButtons, the HID report's button count), unnamed
-    // gaps included: the G920's button 12 (1-based) exists but nothing presses it.
+    // How many buttons the mapping has (target buttons 0..buttonCount() - 1, the Mapping tab's rows), unnamed gaps
+    // included: the G920's button 12 (1-based) exists but nothing presses it.
     [[nodiscard]] virtual std::size_t buttonCount() const { return 0; }
+    // How many of them the emulated wheel reports (DirectInput's dwButtons, the HID report's button count): all but
+    // the Force button.
+    [[nodiscard]] virtual std::size_t reportedButtonCount() const { return buttonCount(); }
+    // The Force button (the RGT's, docs/target-rgt.md): the last target button, never reported to the game; each press
+    // switches the target's centring spring off or on (ForceButton.hpp). nullopt: the target has none.
+    [[nodiscard]] virtual std::optional<std::size_t> forceButton() const { return std::nullopt; }
     // How the Mapping tab groups its named buttons (related ones together); empty: in number order.
     [[nodiscard]] virtual std::vector<ButtonGroup> buttonGroups() const { return {}; }
     // Whether its buttons have a native order besides the one they are named in (ButtonOrder::Native).
@@ -135,6 +152,8 @@ public:
     [[nodiscard]] virtual std::uint32_t nativeButtons(const std::uint32_t buttons) const { return buttons; }
     // The target button (0-based, as named) of a core button, or -1 when it has none.
     [[nodiscard]] virtual int coreButton(CoreButton /*button*/) const { return -1; }
+    // The target button (0-based, as named) of gear `gear` (kGearKinds' index), or -1 when it has none.
+    [[nodiscard]] virtual int gearButton(std::size_t /*gear*/) const { return -1; }
 };
 
 // The number a game shows for target button `index` (0-based, as named), the way the real wheel numbers it there.
@@ -179,6 +198,10 @@ struct DeviceProfileSpec {
     std::vector<std::uint8_t> nativeButtonOrder;
     // The target button of each CoreButton (IDeviceProfile::coreButton), in CoreButton's order; -1: none.
     std::array<int, kCoreButtonCount> coreButtons = {-1, -1, -1, -1, -1, -1};
+    // The target button of each gear (IDeviceProfile::gearButton), in kGearKinds' order; -1: none.
+    std::array<int, kGearCount> gearButtons = {-1, -1, -1, -1, -1, -1, -1, -1};
+    // The last of buttonNames is the Force button (IDeviceProfile::forceButton): not reported.
+    bool forceButton = false;
 };
 
 // Data-driven profile: identity plus linear axis encodings.
@@ -190,10 +213,18 @@ public:
     [[nodiscard]] TargetReport encode(const WheelState& state) const override;
     [[nodiscard]] std::string_view buttonName(std::size_t index) const override;
     [[nodiscard]] std::size_t buttonCount() const override { return spec_.buttonNames.size(); }
+    [[nodiscard]] std::size_t reportedButtonCount() const override {
+        return spec_.buttonNames.size() - (spec_.forceButton && !spec_.buttonNames.empty() ? 1 : 0);
+    }
+    [[nodiscard]] std::optional<std::size_t> forceButton() const override {
+        if (!spec_.forceButton || spec_.buttonNames.empty()) return std::nullopt;
+        return spec_.buttonNames.size() - 1;
+    }
     [[nodiscard]] std::vector<ButtonGroup> buttonGroups() const override { return spec_.buttonGroups; }
     [[nodiscard]] bool hasNativeButtonOrder() const override { return !spec_.nativeButtonOrder.empty(); }
     [[nodiscard]] std::uint32_t nativeButtons(std::uint32_t buttons) const override;
     [[nodiscard]] int coreButton(CoreButton button) const override;
+    [[nodiscard]] int gearButton(std::size_t gear) const override;
 
 private:
     [[nodiscard]] std::int32_t encodePedal(float travel) const;
@@ -255,11 +286,62 @@ inline constexpr std::size_t kG923FirstGear = kG920FirstGear;
 // with its 24 buttons. Its rev lights are not emulated; TrueForce is (TrueForce.hpp).
 [[nodiscard]] DeviceProfileSpec g923Spec();
 
+// The RGT's buttons (Thrustmaster RGT Force Feedback Pro Clutch Edition, 044F:B653, docs/target-rgt.md): the real
+// wheel reports 10 (its report descriptor, linux-input 2008), as Thrustmaster's driver registers them and Race Driver:
+// GRID's RGT preset reads them: 0 and 1 the paddles (gear down, gear up), 2-7 the rim's buttons, 8 and 9 the
+// sequential stick (up a gear, down a gear). WheelBri's RGT reports 12: 10 and 11 the two on the stick's base, which
+// a real one does not report (its maker's identity, VirtualWheel::makerIdentity, keeps the real 10).
+inline constexpr std::size_t kRgtRealButtons = 10;
+inline constexpr std::size_t kRgtButtons = 12;
+// The RGT's Force button (12, after them): switches its centring spring off and on (on a real one, its recentring);
+// handled inside a real wheel, never reported.
+inline constexpr std::size_t kRgtForceButton = kRgtButtons;
+// Thrustmaster RGT Force Feedback Pro Clutch Edition (044F:B653), as games see it with Thrustmaster's driver: named
+// "RGT Force Feedback Pro" (the name Thrustmaster's installer registers for B653 and Race Driver: GRID's preset 5
+// reads), 270 degrees, pedals released at the top (255 at rest on a real one), 12 buttons and the Force button, a
+// D-pad. Which rim button is which number is not known yet: the names say Button 3..8.
+[[nodiscard]] DeviceProfileSpec rgtSpec();
+
+// The TMX's buttons (Thrustmaster TMX PRO Force Feedback, 044F:B67F, docs/target-tmx.md): 13, as the real wheel's
+// HID report has them (captures/tmx). DiRT Rally 2.0's TMX preset reads 0 and 1 as the paddles (gear down, gear up);
+// which printed rim button each other number is: not known yet.
+inline constexpr std::size_t kTmxButtons = 13;
+// Thrustmaster TMX PRO Force Feedback (the TMX with its three T3PA pedals; 044F:B67F), as games see it with
+// Thrustmaster's driver: named "Thrustmaster TMX Racing Wheel" (the product string and the name Thrustmaster's
+// installer registers for B67F), 900 degrees, pedals released at the top (1023 at rest on a real one), 13 buttons, a
+// D-pad.
+[[nodiscard]] DeviceProfileSpec tmxSpec();
+
+// The RGT's axis mode and pedal set ([tm_rgt] axes, pedal_set; Thrustmaster's manual, "Axis selection"): what its pedal
+// axes carry. Combining follows from these, as on the real wheel; WheelBri's combined pedals do not apply to it.
+enum class RgtAxes : std::uint8_t { Two = 2, Three = 3, Five = 5 };
+enum class RgtPedalSet : std::uint8_t { Levers, Clutch };   // the pedal base's switch: 2 L, 3 P
+struct RgtMode {
+    RgtAxes axes = RgtAxes::Five;
+    RgtPedalSet pedalSet = RgtPedalSet::Clutch;
+    // As the real wheel: the clutch (3 P) always means 5 axes.
+    [[nodiscard]] constexpr RgtAxes effectiveAxes() const {
+        return pedalSet == RgtPedalSet::Clutch ? RgtAxes::Five : axes;
+    }
+    friend bool operator==(const RgtMode&, const RgtMode&) = default;
+};
+
+// `report` (the RGT's encode) with its pedal axes as the mode reports them (the manual's table):
+//   2 axes: Y = gas (with the right lever) and brake (with the left lever) on one axis, as combinedPedals;
+//   3 axes, levers: Y = brake with the left lever, Rz = gas with the right lever (the one pressed further);
+//   5 axes, levers: Y brake, Rz gas, Slider 0 the left lever, Slider 1 the right lever;
+//   5 axes, clutch: Y brake, Rz gas, Slider 0 the clutch, Slider 1 at rest.
+// An axis the mode does not use rests at the top (65535), as the RGT's released pedals. Which way gas and brake move
+// the 2 axes Y, and how 3 axes joins a pedal and a lever, are not measured on a real RGT yet.
+[[nodiscard]] TargetReport withRgtMode(TargetReport report, RgtMode mode);
+
 // Config names of the built-in profiles, for messages: the wheels WheelBri emulates (a virtual device and the shim both
 // present them). A new target is a new profile here plus its support (driver, shim) first.
-inline constexpr std::string_view kKnownProfiles = "g25, g27, g920, g923";
+inline constexpr std::string_view kKnownProfiles = "g25, g27, g920, g923, tm_rgt, tmx";
 
-// Looks up a built-in profile by its config name ("g920", "g25", "g27", "g923"). Returns nullptr for unknown names.
+// Looks up a built-in profile by its config name ("g920", "g25", "g27", "g923", "tm_rgt", "tmx"). Returns nullptr for
+// unknown names.
 [[nodiscard]] std::unique_ptr<IDeviceProfile> makeProfile(std::string_view name);
+
 
 }  // namespace wheelbri

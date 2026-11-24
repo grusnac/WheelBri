@@ -12,7 +12,7 @@ Using the app: [user-guide.md](user-guide.md); the Targets: [targets.md](targets
 | [NFS Payback](#nfs-payback) | G920 | works; needs G HUB | not recommended | 180 degrees |
 | [NFS Heat](#nfs-heat) | G920 | works | works | detection only (warns as a G923) |
 | [NFS Unbound](#nfs-unbound) | G920 | works | works | its hidden settings: force 1.0, spring 0.8, rotation |
-| [Race Driver: GRID](#race-driver-grid) | G25 | works | works (32-bit) | none |
+| [Race Driver: GRID](#race-driver-grid) | G25; RGT | works (RGT: a lap and force feedback, with its friction set; buttons not checked) | works (32-bit; RGT not yet tried) | game files: replay controls; the RGT's friction |
 
 "Works" means wheel, pedals, buttons and force feedback were checked in the game. Built-in profiles apply with Target
 G920 only, by themselves while the game runs.
@@ -87,6 +87,18 @@ G920 only, by themselves while the game runs.
 ## Race Driver: GRID
 
 - **Target:** **G25**, Order Logitech (the game has its own G25 preset). Mode Shim uses the 32-bit shim.
+- **Target RGT** (Mode Virtual: a lap driven, force feedback as with the G25 once its friction set is in; GRID's RGT
+  preset, from the game's files, not yet checked for the rest): it reads the throttle on Rz or Slider 1
+  and the brake on Y or Slider 0, and has no clutch: the layout of **5 axes** with **Levers**, where the levers are a
+  second throttle and brake. With Clutch, the clutch pedal (Slider 0) would brake. A test build was taken as the RGT, its
+  pedals and menu buttons worked ([target-rgt.md](target-rgt.md)).
+- **RGT with Thrustmaster's driver installed:** no force feedback at all. Its 2018.FFD.2 package registers its force
+  feedback driver for 64-bit programs only, and GRID is 32-bit. Uninstall the package to play GRID on the RGT.
+- **RGT force feedback:** GRID gives the RGT a negative friction (`forcefeedback/devicesetup.xml`, baseFriction -25,
+  to lighten a real RGT's belt and gears). On a wheel with little friction of its own, such as a direct drive, it pushes
+  the wheel the way it moves: at the start line it swings lock to lock by itself. Games tab, GRID, **Game file**: the
+  RGT's friction set, **Add to file** (game closed) puts the G25's 0 there; **Remove from file** puts GRID's back. Shown
+  with Target RGT only.
 - **Set up:** VSync on (or the frame rate capped): above about 144 Hz the game sends a broken force, which WheelBri
   plays as none. The game sends no centring and turns the wheel's off: set the G25's **Centring spring** on the
   Mapping tab.
@@ -126,7 +138,7 @@ G920 only, by themselves while the game runs.
   Logitech DLL).
 - **Windows 7:** games other than the old NFS ones above.
 - **Windows 8, 8.1 and 10** (Mode Shim only).
-- **Other games** that support a Logitech wheel should work in Mode Virtual. One that reads the pedals differently
+- **Other games** that support one of the Targets' wheels should work in Mode Virtual. One that reads the pedals differently
   needs a small game profile, as NFS 2015 does.
 
 ## Reporting a game

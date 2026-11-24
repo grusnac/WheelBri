@@ -264,10 +264,33 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
                                               tuning::formatNumber(kGameSettingMax) + " or steering");
                 }
             }
+        } else if (section == "game_files" || section.starts_with("game_files.")) {
+            const std::string name = section.size() > 10 ? section.substr(11) : std::string();
+            const std::string tag = "[" + section + "] ";
+            if (section != "game_files" &&
+                (name.empty() || name.size() > kMaxLabel ||
+                 !std::all_of(name.begin(), name.end(), [](const char c) {
+                     return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+                 }))) {
+                result.problems.push_back(tag + "the name after game_files.: lower case letters, digits and _");
+            }
+            ParsedFileValueMap files = parseFileValueMap(keys);
+            for (std::string& problem : files.problems) {
+                // The parser names its section [game_files]: say which one.
+                if (problem.starts_with("[game_files] ")) problem = tag + problem.substr(13);
+                result.problems.push_back(std::move(problem));
+            }
+            files.map.target = lower(files.map.target);
+            if (!files.map.target.empty() && makeProfile(files.map.target) == nullptr) {
+                result.problems.push_back(tag + "target = '" + files.map.target + "' is not a target (" +
+                                          std::string(kKnownProfiles) + ")");
+            }
+            profile.gameFiles.push_back(std::move(files.map));
         } else {
             result.problems.push_back("[" + section +
-                                      "]: unknown section (only [game], [pedals], [steering] and [game_settings]; a "
-                                      "game's force feedback is the game's and the wheel's own app's to set)");
+                                      "]: unknown section (only [game], [pedals], [steering], [game_settings] and "
+                                      "[game_files]; a game's force feedback is the game's and the wheel's own app's "
+                                      "to set)");
         }
     }
     if (profile.label.empty()) {
@@ -391,6 +414,18 @@ std::optional<WayAdvice> wayAdvice(const GameProfile& game, const bool shim) {
 
 bool profileFitsTarget(const GameProfile& profile, const std::string_view targetProfile) {
     return profile.target.empty() || profile.target == lower(targetProfile);   // empty: a game the user added
+}
+
+std::vector<const FileValueMap*> gameFilesFor(const GameProfile& profile, const std::string_view targetProfile) {
+    std::vector<const FileValueMap*> sets;
+    const std::string target = lower(targetProfile);
+    for (const FileValueMap& set : profile.gameFiles) {
+        if (!set.target.empty() && set.target == target) sets.push_back(&set);
+    }
+    for (const FileValueMap& set : profile.gameFiles) {
+        if (set.target.empty()) sets.push_back(&set);
+    }
+    return sets;
 }
 
 JoystickLayout overlay(JoystickLayout base, const GameProfile& profile) {

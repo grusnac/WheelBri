@@ -13,6 +13,7 @@
 #include "wheelbri/EventLoopControl.hpp"
 #include "wheelbri/FfbController.hpp"
 #include "wheelbri/FfbIdleWatch.hpp"
+#include "wheelbri/ForceButton.hpp"
 #include "wheelbri/GameUseWatch.hpp"
 #include "wheelbri/LogLevel.hpp"
 #include "wheelbri/LogLevelPacket.hpp"
@@ -72,6 +73,8 @@ public:
     // Every pass: what arrived from the game, then the forces brought up to date (limits, watchdog).
     virtual void pump(std::uint64_t nowNs) = 0;
     [[nodiscard]] virtual const FfbController& controller() const = 0;
+    // The target's centring spring, 0..100 percent (FfbController::setCentringSpring): the Force button switches it.
+    virtual void setCentringSpring(float /*percent*/) {}
     // Every 10 s, and at the end: lines for the log.
     virtual void logStatsIfChanged() {}
     virtual void logUsage() {}
@@ -86,6 +89,10 @@ public:
         std::string targetName;                    // "G920": for the log
         std::vector<std::string> accessoryNames;   // in the pipeline's order: for the log when one is lost
         LoopFfb* ffb = nullptr;                    // null: no game force feedback
+        // The target's Force button (IDeviceProfile::forceButton) and its centring spring's strength at Start: each
+        // press switches the spring off or on (ForceButton.hpp). nullopt: no Force button.
+        std::optional<std::size_t> forceButton;
+        float centringSpringPercent = 0.0F;
         TelemetryRecorder* telemetry = nullptr;    // null: none
         bool print = false;                        // --print: a live line on the console
         bool window = false;                       // a window takes copies (LoopShared::frame)
@@ -124,6 +131,7 @@ private:
     std::string targetName_;
     std::vector<std::string> accessoryNames_;
     LoopFfb* ffb_;
+    std::optional<ForceButton> forceButton_;
     TelemetryRecorder* telemetry_;
     bool print_;
     bool window_;

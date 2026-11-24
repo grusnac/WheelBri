@@ -472,10 +472,10 @@ void noteDecision(const ULONG pid, const ULONG allowed, const bool refused) {
 }
 
 // Per device: never hide a virtual wheel, even if the filter ended up on it (Windows put it there by itself once):
-// hiding it would hide the wheel games are meant to see. The hardware ids of the four (kVirtualWheels in
-// core/src/HidWheelDevice.cpp): G25, G27, G920, G923.
+// hiding it would hide the wheel games are meant to see. The hardware ids of the six (kVirtualWheels in
+// core/src/HidWheelDevice.cpp): G25, G27, G920, G923, RGT, TMX.
 constexpr const char* kVirtualWheelIds[] = {"VID_046D&PID_C299", "VID_046D&PID_C29B", "VID_046D&PID_C262",
-                                            "VID_046D&PID_C26E"};
+                                            "VID_046D&PID_C26E", "VID_044F&PID_B653", "VID_044F&PID_B67F"};
 
 struct DeviceContext {
     bool neverHide;

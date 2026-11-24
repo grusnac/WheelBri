@@ -261,6 +261,7 @@ public:
         controller_.update(nowNs);
     }
     [[nodiscard]] const FfbController& controller() const override { return controller_; }
+    void setCentringSpring(const float percent) override { controller_.setCentringSpring(percent); }
 
 private:
     EmulatedSocket& socket_;
@@ -285,20 +286,27 @@ void PushLoopRig::addGameFfb(EmulatedSocket& socket) {
 int PushLoopRig::run(const std::uint64_t endNs) {
     if (loop_ != nullptr) throw std::logic_error("run() once per rig");
     const Mapper mapper(options_.mapper);
-    const DeviceProfile profile(g920Spec());
+    const DeviceProfile profile(options_.rgt ? rgtSpec() : g920Spec());
     CountingPublisher publisher;
     Pipeline pipeline(wheel_, mapper, profile, publisher);
     pipeline.setAccessories(accessories_);
     System system(*this, endNs);
     std::unique_ptr<GameFfb> ffb = socket_ != nullptr ? std::make_unique<GameFfb>(*socket_, sink_) : nullptr;
+    if (ffb != nullptr && options_.rgt) ffb->setCentringSpring(options_.centringSpringPercent);
     std::vector<std::string> names;
     for (std::size_t i = 0; i < accessoryCount_; ++i) names.push_back(accessories_[i]->name());
     loop_ = std::make_unique<service::ServiceLoop>(service::ServiceLoop::Parts{.pipeline = pipeline,
                                                                               .system = system,
                                                                               .shared = shared_,
-                                                                              .targetName = "G920",
+                                                                              .targetName = options_.rgt ? "RGT"
+                                                                                                         : "G920",
                                                                               .accessoryNames = names,
                                                                               .ffb = ffb.get(),
+                                                                              .forceButton = profile.forceButton(),
+                                                                              .centringSpringPercent =
+                                                                                  options_.rgt
+                                                                                      ? options_.centringSpringPercent
+                                                                                      : 0.0F,
                                                                               .telemetry = nullptr,
                                                                               .print = false,
                                                                               .window = options_.windowOpen,

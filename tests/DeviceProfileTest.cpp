@@ -443,5 +443,108 @@ TEST(DeviceProfile, ReportsAndCellsCompareEveryField) {
     EXPECT_EQ(toString(b), "{C262046D-0000-0000-0000-504944564900}");
 }
 
+// The RGT: Thrustmaster's DirectInput name and ids, 270 degrees, 12 buttons reported and the Force button after them
+// (never reported), one order; core buttons where Race Driver: GRID's RGT preset has Select, Back, Boost, Look back
+// and the paddles.
+TEST(DeviceProfile, RgtIsThrustmastersName) {
+    const auto rgt = makeProfile("tm_rgt");
+    ASSERT_NE(rgt, nullptr);
+    EXPECT_EQ(rgt->identity().vendorId, 0x044F);
+    EXPECT_EQ(rgt->identity().productId, 0xB653);
+    EXPECT_EQ(rgt->identity().productName, "RGT Force Feedback Pro");
+    EXPECT_FLOAT_EQ(rgt->identity().rotationDeg, 270.0F);
+    EXPECT_EQ(rgt->buttonCount(), kRgtButtons + 1);
+    EXPECT_EQ(rgt->reportedButtonCount(), kRgtButtons);
+    EXPECT_EQ(rgt->forceButton(), kRgtForceButton);
+    EXPECT_EQ(rgt->buttonName(10), "Button 11");
+    EXPECT_EQ(rgt->buttonName(11), "Button 12");
+    EXPECT_EQ(rgt->buttonName(kRgtForceButton), "Force");
+    EXPECT_EQ(makeProfile("g25")->forceButton(), std::nullopt);
+    EXPECT_EQ(makeProfile("g25")->reportedButtonCount(), makeProfile("g25")->buttonCount());
+    EXPECT_FALSE(rgt->hasNativeButtonOrder());
+    EXPECT_EQ(rgt->coreButton(CoreButton::A), 5);
+    EXPECT_EQ(rgt->coreButton(CoreButton::B), 4);
+    EXPECT_EQ(rgt->coreButton(CoreButton::LPaddle), 0);
+    EXPECT_EQ(rgt->coreButton(CoreButton::RPaddle), 1);
+}
+
+TEST(DeviceProfile, TmxIsThrustmastersName) {
+    const auto tmx = makeProfile("tmx");
+    ASSERT_NE(tmx, nullptr);
+    EXPECT_EQ(tmx->identity().vendorId, 0x044F);
+    EXPECT_EQ(tmx->identity().productId, 0xB67F);
+    EXPECT_EQ(tmx->identity().productName, "Thrustmaster TMX Racing Wheel");
+    EXPECT_FLOAT_EQ(tmx->identity().rotationDeg, 900.0F);
+    EXPECT_EQ(tmx->buttonCount(), kTmxButtons);
+    EXPECT_FALSE(tmx->hasNativeButtonOrder());
+    EXPECT_EQ(tmx->coreButton(CoreButton::A), 4);   // DiRT Rally 2.0's menu select
+    EXPECT_EQ(tmx->coreButton(CoreButton::B), 8);   // and menu back
+    EXPECT_EQ(tmx->coreButton(CoreButton::X), -1);
+    EXPECT_EQ(tmx->coreButton(CoreButton::Y), -1);
+    EXPECT_EQ(tmx->coreButton(CoreButton::LPaddle), 0);
+    EXPECT_EQ(tmx->coreButton(CoreButton::RPaddle), 1);
+    // Pedals released at the top, as a real TMX's (1023 of 0..1023 at rest).
+    const TargetReport released = tmx->encode(WheelState{});
+    EXPECT_EQ(released.throttle, 65535);
+    EXPECT_EQ(released.brake, 65535);
+    EXPECT_EQ(released.clutch, 65535);
+}
+
+// The RGT's encode carries the levers as the pedals: released at the top, fully pressed at the bottom.
+TEST(DeviceProfile, RgtEncodeCarriesTheLevers) {
+    const auto rgt = makeProfile("tm_rgt");
+    ASSERT_NE(rgt, nullptr);
+    WheelState state;
+    state.leftLever = 1.0F;
+    const TargetReport report = rgt->encode(state);
+    EXPECT_EQ(report.leftLever, 0);
+    EXPECT_EQ(report.rightLever, 65535);
+}
+
+// The RGT's axis modes (withRgtMode), as Thrustmaster's manual's table: brake Y, throttle Rz, clutch Slider 0,
+// rightLever Slider 1; 65535 released, 0 fully pressed; an axis the mode does not use at rest.
+TEST(DeviceProfile, RgtModesPutThePedalsAndLeversWhereTheManualSays) {
+    TargetReport in;
+    in.throttle = 0;          // gas fully pressed
+    in.brake = 65535;         // released
+    in.clutch = 40000;
+    in.leftLever = 20000;
+    in.rightLever = 65535;
+
+    const TargetReport fiveClutch = withRgtMode(in, {RgtAxes::Five, RgtPedalSet::Clutch});
+    EXPECT_EQ(fiveClutch.brake, 65535);
+    EXPECT_EQ(fiveClutch.throttle, 0);
+    EXPECT_EQ(fiveClutch.clutch, 40000);
+    EXPECT_EQ(fiveClutch.rightLever, 65535);   // Slider 1: off with the clutch
+    EXPECT_EQ(fiveClutch.leftLever, 65535);
+
+    in.rightLever = 30000;
+    const TargetReport fiveLevers = withRgtMode(in, {RgtAxes::Five, RgtPedalSet::Levers});
+    EXPECT_EQ(fiveLevers.brake, 65535);
+    EXPECT_EQ(fiveLevers.throttle, 0);
+    EXPECT_EQ(fiveLevers.clutch, 20000);       // Slider 0: the left lever
+    EXPECT_EQ(fiveLevers.rightLever, 30000);   // Slider 1: the right lever
+
+    const TargetReport threeLevers = withRgtMode(in, {RgtAxes::Three, RgtPedalSet::Levers});
+    EXPECT_EQ(threeLevers.brake, 20000);       // the brake with the left lever: the one pressed further
+    EXPECT_EQ(threeLevers.throttle, 0);        // the gas with the right lever
+    EXPECT_EQ(threeLevers.clutch, 65535);
+    EXPECT_EQ(threeLevers.rightLever, 65535);
+
+    const TargetReport twoLevers = withRgtMode(in, {RgtAxes::Two, RgtPedalSet::Levers});
+    TargetReport pair;
+    pair.throttle = 0;
+    pair.brake = 20000;
+    EXPECT_EQ(twoLevers.brake, combinedPedals(pair));   // Y: gas one way, brake the other
+    EXPECT_EQ(twoLevers.throttle, 65535);
+    EXPECT_EQ(twoLevers.clutch, 65535);
+    EXPECT_EQ(twoLevers.rightLever, 65535);
+
+    // The clutch always means 5 axes, as the real wheel in 3 P.
+    EXPECT_EQ((RgtMode{RgtAxes::Two, RgtPedalSet::Clutch}.effectiveAxes()), RgtAxes::Five);
+    in.rightLever = 65535;
+    EXPECT_EQ(withRgtMode(in, {RgtAxes::Two, RgtPedalSet::Clutch}), fiveClutch);
+}
+
 }  // namespace
 }  // namespace wheelbri

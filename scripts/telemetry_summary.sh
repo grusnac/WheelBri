@@ -162,6 +162,8 @@ function settle(w,    s) {
     if (pBrk > 0.05) wBrk += w
     if (pClu > 0.05) wClu += w
     if (pThr > 0.05 && pBrk > 0.05) wBoth += w
+    if (pLL > 0.05) wLL += w
+    if (pRL > 0.05) wRL += w
     if (pWatch == "1") wWatch += w
     for (s = 0; s < 8; s++) if (pType[s] != "") typeW[pType[s]] += w
 }
@@ -197,6 +199,17 @@ take() {
     if (rows == 1 || st < steerMin) steerMin = st
     if (rows == 1 || st > steerMax) steerMax = st
     if (v("pedals") == "combined") combinedRows++
+    # Rows of the RGT: its mode (rgt_mode), the levers after mapping and its Slider 1 (out_right_lever).
+    if (v("rgt_mode") != "") {
+        rgtRows++; rgtModes[v("rgt_mode")]++
+        pLL = v("left_lever") + 0; pRL = v("right_lever") + 0; oRL = v("out_right_lever") + 0
+        if (rgtRows == 1 || pLL > maxLL) maxLL = pLL
+        if (rgtRows == 1 || pRL > maxRL) maxRL = pRL
+        if (rgtRows == 1 || oRL < minORL) minORL = oRL
+        if (rgtRows == 1 || oRL > maxORL) maxORL = oRL
+    } else {
+        pLL = 0; pRL = 0
+    }
     split("out_steer out_throttle out_brake out_clutch", outs, " ")
     for (k = 1; k <= 4; k++) {
         o = v(outs[k]) + 0
@@ -247,6 +260,15 @@ END {
     print "\nsent to the game (emulated wheel units): min / max"
     for (k = 1; k <= 4; k++) printf "  %-12s %7.0f / %7.0f\n", outs[k], omin[k], omax[k]
     if (combinedRows > 0) printf "  pedals combined in %d of %d rows (out_throttle: throttle and brake)\n", combinedRows, rows
+
+    if (rgtRows > 0) {
+        line = ""
+        for (m in rgtModes) line = line (line == "" ? "" : ", ") m " (" rgtModes[m] " rows)"
+        print "\nRGT: " line " (out_brake Y, out_throttle Rz, out_clutch Slider 0)"
+        printf "  %-12s %5.1f%%  max %.3f\n", "left lever", wLL / total * 100, maxLL
+        printf "  %-12s %5.1f%%  max %.3f\n", "right lever", wRL / total * 100, maxRL
+        printf "  %-12s %7.0f / %7.0f  (Slider 1)\n", "out_right_lever", minORL, maxORL
+    }
 
     if (ffbPackets == "") {
         print "\nforce feedback: off"

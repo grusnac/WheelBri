@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Once per machine (Steam Deck: set a password first with `passwd`, sudo needs it):
-#  - lets that user create the virtual wheel (G25, G27, G920 or G923: /dev/uhid) without root, as a member of the
+#  - lets that user create the virtual wheel (G25, G27, G920, G923 or RGT: /dev/uhid) without root, as a member of the
 #    group wheelbri: /dev/uhid can make any device (a keyboard too), so only that group may, not every program of
 #    whoever sits at the machine;
 #  - lets games open the virtual wheel raw (its /dev/hidraw node), which Proton needs for its force feedback;
@@ -31,16 +31,17 @@ sudo usermod -aG "$group" "$user"
 
 sudo tee "$rules" >/dev/null <<'RULES'
 # WheelBri (scripts/linux/install-udev-rules.sh)
-# wheelbri-uhid creates the virtual G25, G27, G920 or G923 through uhid: the group wheelbri only (uhid can make any
+# wheelbri-uhid creates the virtual G25, G27, G920, G923 or RGT through uhid: the group wheelbri only (uhid can make any
 # device, a keyboard too: not every program of the user at the seat).
 KERNEL=="uhid", GROUP="wheelbri", MODE="0660"
 # Games (Proton with PROTON_ENABLE_HIDRAW=0x046D/0xC262) open the G920 raw for its force feedback; the virtual G25
-# (0x046D/0xC299), G27 (0x046D/0xC29B) and G923 (0x046D/0xC26E) are on the virtual bus (0006), where the kernel's
-# generic driver takes them.
+# (0x046D/0xC299), G27 (0x046D/0xC29B), G923 (0x046D/0xC26E) and RGT (0x044F/0xB653) are on the virtual bus (0006),
+# where the kernel's generic driver takes them (hid-tmff matches the RGT on USB only).
 SUBSYSTEM=="hidraw", KERNELS=="0003:046D:C262.*", MODE="0660", TAG+="uaccess"
 SUBSYSTEM=="hidraw", KERNELS=="0006:046D:C299.*", MODE="0660", TAG+="uaccess"
 SUBSYSTEM=="hidraw", KERNELS=="0006:046D:C29B.*", MODE="0660", TAG+="uaccess"
 SUBSYSTEM=="hidraw", KERNELS=="0006:046D:C26E.*", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="hidraw", KERNELS=="0006:044F:B653.*", MODE="0660", TAG+="uaccess"
 # wheelbri-service reads the rig's devices (any game controller) and writes force feedback through evdev.
 SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_JOYSTICK}=="1", MODE="0660", TAG+="uaccess"
 RULES

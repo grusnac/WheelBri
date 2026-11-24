@@ -41,7 +41,7 @@ TEST(GameProfiles, EveryBuiltInFileParsesCleanly) {
         EXPECT_EQ(gameProfileFor(profile.program, gameProfiles(), found), &profile) << profile.id;
         // A profile is the exception: it changes something or gives advice, or it should not exist.
         EXPECT_TRUE(!describeOverlay(profile).empty() || profile.rotationDeg.has_value() ||
-                    !profile.settings.empty() || !profile.notFor.empty())
+                    !profile.settings.empty() || !profile.notFor.empty() || !profile.gameFiles.empty())
             << profile.id;
     }
 }
@@ -55,6 +55,87 @@ TEST(GameProfiles, Nfs2015HoldsOnlyItsPedalAxes) {
     EXPECT_EQ(profile.brakeAxis, ObjectGuid::YAxis);
     EXPECT_EQ(profile.clutchAxis, ObjectGuid::RzAxis);
     EXPECT_EQ(describeOverlay(profile), "throttle_axis = slider, brake_axis = y, clutch_axis = rz");
+}
+
+// GRID's RGT preset has a negative base friction (forcefeedback/devicesetup.xml), which swings a low-friction wheel
+// lock to lock: the RGT's set puts the G25's 0 there and the game's -25 back, nothing else; only with the RGT.
+TEST(GameProfiles, GridGivesTheRgtTheG25sFrictionAndTakesItBack) {
+    const GameProfile* const grid = gameProfileFor("grid.exe");
+    ASSERT_NE(grid, nullptr);
+    ASSERT_EQ(grid->gameFiles.size(), 2U);
+    const FileValueMap& friction = grid->gameFiles[1];
+    EXPECT_EQ(friction.file, "forcefeedback/devicesetup.xml");
+    EXPECT_EQ(friction.target, "tm_rgt");
+    ASSERT_EQ(friction.lines.size(), 1U);
+    EXPECT_EQ(shownFileValueLine(friction.lines[0]),
+              "FFBDevice[name=RGT Force Feedback Pro] baseFriction -25.0 -> 0.0");
+    ASSERT_EQ(gameFilesFor(*grid, "tm_rgt").size(), 2U);
+    EXPECT_EQ(gameFilesFor(*grid, "TM_RGT").front(), &friction);   // the target's own set first
+    ASSERT_EQ(gameFilesFor(*grid, "g25").size(), 1U);
+    EXPECT_EQ(gameFilesFor(*grid, "g25").front(), &grid->gameFiles[0]);
+    EXPECT_EQ(gameFilesFor(*grid, "g920").size(), 1U);
+
+    // GRID's file as it ships (its lines for the G25 and the RGT, as in the game's folder).
+    const std::string file =
+        "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\r\n<FFBDevices>\r\n"
+        "  <FFBDevice name=\"Logitech G25 Racing Wheel USB\"   scaleForce=\"1.0\" scaleFriction=\"0.8\" "
+        "baseFriction=\"0.0\" maxFriction=\"45.0\" scaleEffects=\"1.0\" delay=\"0.0\"/>\r\n"
+        "    <FFBDevice name=\"RGT Force Feedback Pro\"          scaleForce=\"1.2\" scaleFriction=\"1.0\" "
+        "baseFriction=\"-25.0\" maxFriction=\"45.0\" scaleEffects=\"1.4\" delay=\"0.0\"/>\r\n"
+        "</FFBDevices>\r\n";
+    EXPECT_TRUE(fileValueState(file, friction).none());
+    const FileValueEdit added = addFileValues(file, friction);
+    ASSERT_TRUE(added.problems.empty()) << added.problems.front();
+    EXPECT_EQ(added.changed, 1U);
+    EXPECT_NE(added.text.find("scaleFriction=\"1.0\" baseFriction=\"0.0\" maxFriction=\"45.0\" scaleEffects=\"1.4\""),
+              std::string::npos);
+    EXPECT_EQ(added.text.size(), file.size() - 2);   // "-25.0" -> "0.0": nothing else
+    EXPECT_EQ(removeFileValues(added.text, friction).text, file);
+}
+
+TEST(GameProfiles, GridPutsItsReplayControlsOnTheG25AndTakesThemOut) {
+    const GameProfile* const grid = gameProfileFor("GRID.exe");
+    ASSERT_NE(grid, nullptr);
+    EXPECT_EQ(grid->label, "Race Driver: GRID");
+    EXPECT_EQ(grid->target, "g25");   // its replay set's lines are the G25 preset's
+    ASSERT_EQ(grid->gameFiles.size(), 2U);
+    const FileValueMap& replay = grid->gameFiles.front();
+    EXPECT_EQ(replay.target, "");   // shown with every target, as always
+    EXPECT_EQ(replay.file, "ActionMap/actionMapPreset1.xml");
+    ASSERT_EQ(replay.lines.size(), 12U);
+    for (const FileValueLine& line : replay.lines) {
+        EXPECT_NE(line.value.find("deviceName = \"Logitech G25 Racing Wheel USB\""), std::string::npos) << line.value;
+        EXPECT_FALSE(line.note.empty());
+    }
+    // The G25 preset as GRID ships it, its replay and menu actions (CRLF, tabs, `attr = "v"`).
+    std::string file = "<ActionMap deviceType=\"Logitech G25 Racing Wheel USB\" priority=\"1\" >\r\n\t\r\n"
+                       "\t<!-- Replay Actions -->\r\n";
+    for (const char* const action : {"Replay Rewind", "Replay Fast Forward", "Replay Pause", "Replay Next Camera",
+                                     "Replay Prev Camera", "Replay Jump In", "Replay Exit", "Menu Select"}) {
+        file += std::string("\t<Action actionName = \"") + action + "\" >\r\n\t\t<Axis axisName = \"win_key_f1\" "
+                "deviceName = \"Keyboard\" baseCalibration = \"uniDirectionalPositive\" />\r\n\t</Action>\r\n";
+    }
+    file += "</ActionMap>\r\n";
+    EXPECT_TRUE(fileValueState(file, replay).none());
+    const FileValueEdit added = addFileValues(file, replay);
+    ASSERT_TRUE(added.problems.empty()) << added.problems.front();
+    EXPECT_EQ(added.changed, 12U);
+    EXPECT_NE(added.text.find("\t<Action actionName = \"Menu Start Button\" ><Axis axisName = \"win_con_di_button3\" "),
+              std::string::npos);
+    EXPECT_NE(added.text.find("\t\t<Axis axisName = \"win_con_di_button16\" deviceName = \"Logitech G25 Racing Wheel "
+                              "USB\" baseCalibration = \"uniDirectionalPositive\" />\r\n\t</Action>\r\n\t<Action "
+                              "actionName = \"Replay Exit\""),
+              std::string::npos);
+    EXPECT_EQ(removeFileValues(added.text, replay).text, file);
+}
+
+TEST(GameProfiles, AProfileWithABadValueMapIsNotUsed) {
+    const ParsedGameProfile parsed = parseGameProfile(
+        "x", "[game]\nlabel = X\nprogram = x.exe\ntarget = g25\n[game_files]\nfile = a.xml\nnote = n\n"
+             "insert.1 = A | end | <X/>\n");
+    EXPECT_FALSE(parsed.profile);
+    ASSERT_FALSE(parsed.problems.empty());
+    EXPECT_NE(parsed.problems.front().find("[game_files] insert.1"), std::string::npos) << parsed.problems.front();
 }
 
 TEST(GameProfiles, TheSieveReplacesOnlyWhatTheProfileSets) {

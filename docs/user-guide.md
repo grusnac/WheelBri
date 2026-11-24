@@ -1,6 +1,6 @@
 # WheelBri user guide
 
-How to set up your rig, map it to a Logitech wheel and play. Installing: [install.md](install.md). Everything WheelBri
+How to set up your rig, map it to a Target (the wheel games see) and play. Installing: [install.md](install.md). Everything WheelBri
 can do on one page: [capabilities.md](capabilities.md). Per-game notes: [games.md](games.md).
 
 - [Set up your rig](#set-up-your-rig)
@@ -17,9 +17,10 @@ can do on one page: [capabilities.md](capabilities.md). Per-game notes: [games.m
 
 Two choices decide how WheelBri works:
 
-- **Target**: the Logitech wheel games see. **G920** (default) and **G923** for modern games; **G25** and **G27** for
-  older ones, or games whose presets know only those. Which to pick, and each one's buttons: [targets.md](targets.md)
-  ([G920](target-g920.md), [G923](target-g923.md), [G25](target-g25.md), [G27](target-g27.md)).
+- **Target**: the wheel games see. **G920** (default) and **G923** for modern games; **G25** and **G27** for
+  older ones, or games whose presets know only those; **RGT** (Thrustmaster, not yet tested in a game) for games with
+  a preset for it. Which to pick, and each one's buttons: [targets.md](targets.md)
+  ([G920](target-g920.md), [G923](target-g923.md), [G25](target-g25.md), [G27](target-g27.md), [RGT](target-rgt.md)).
 - **Mode**: **Virtual** creates the Target as a virtual wheel every game sees and hides your rig while WheelBri runs;
   use it unless a game needs otherwise. **Shim** puts a `dinput8.dll` next to one game, for older DirectInput games.
   On a Windows too old for Virtual's driver there is no Virtual button: Shim is locked, and its hover text says why.
@@ -42,8 +43,9 @@ on it when it starts.
 
 ![The popup for a button](images/rig-button-mapping.png)
 
-What a control **is** maps it by itself on every Target: Steering, the pedals, the D-pad, **A**, **B**, **X**, **Y**
-and the paddles (on the G25 and G27, A B X Y go on the shifter's black buttons). Each belongs to one control: a choice
+What a control **is** maps it by itself on every Target: Steering, the pedals, the D-pad, **A**, **B**, **X**, **Y**,
+the paddles (on the G25 and G27, A B X Y go on the shifter's black buttons) and the gears, **Gear 1** to **Gear 7**
+and **Reverse**, on the Target's shifter (the Logitech Targets have 6 gears and R: Gear 7 maps nowhere). Each belongs to one control: a choice
 underlined in amber is another control's already (point at it to see whose), and picking it moves it here. Every other
 button you map yourself.
 
@@ -75,7 +77,7 @@ wheel's rotation, in the wheel's own software. For a game with a dead zone of it
    as **or ...** in the row; click one to change them.
 5. Set **Steering rotation** to the game's full lock, and your wheel's software to **the same number**.
 
-**Combined pedals** (every Target, off by default): throttle and brake on one axis, the throttle's, resting in the
+**Combined pedals** (every Target but the RGT, off by default): throttle and brake on one axis, the throttle's, resting in the
 middle; the brake's axis rests in the middle. As Logitech's "Report Combined Pedals", for old games that read them so
 (NFS Underground, Most Wanted: their menus scroll by themselves otherwise). Those games have it on by themselves
 (Games tab); turn it on here only for another such game. Pressing both pedals cancels out.
@@ -101,6 +103,21 @@ car twitches as the wheel crosses the centre. Best set per game (Games tab).
   (ACC, DiRT Rally 2.0) send their force through it. **Off**: a G923 without it, whose games send their effects one by
   one, as to a G920. On needs Logitech G HUB installed (it need not run); without it On is greyed and says so. Takes
   effect at the next Start. More below, under force feedback, and in [target-g923.md](target-g923.md#trueforce).
+
+**RGT only** (instead of Combined pedals; all take effect at the next Start):
+
+- **AXES**: what the RGT's pedal axes report, as the real wheel's mode switch. **5** (default): each pedal and lever
+  on its own axis. **3**: brake and throttle on their own axes, each with its lever. **2**: throttle and brake on one
+  axis. The table: [target-rgt.md](target-rgt.md#axes).
+- **PEDAL SET**: as the real pedal base's switch. **Clutch** (default): the clutch pedal on Slider 0, the levers not
+  reported; always 5 axes, so 2 and 3 are greyed. **Levers**: the two levers instead of the clutch.
+- **Left lever**, **Right lever**: two more axis rows. Map them yourself (the Rig never does). With Levers, Start
+  waits until both are mapped, and their rows show in amber until then. The rows the pedal set does not report are
+  greyed: the clutch's with Levers, the levers' with Clutch.
+- **Centring spring**: as the G25's above. The RGT's **Force** button (Buttons, FORCE) switches it off and on while
+  running, on again at each Start.
+- With Thrustmaster's own driver installed, a line under these boxes says it drives the virtual RGT's force feedback,
+  in 64-bit games only ([target-rgt.md](target-rgt.md#force-feedback)).
 
 The Target's buttons show **the numbers the game uses**: from 1 in Logitech order (as `joy.cpl` and games count), from
 0 in Native. To see which one the game gets, use the [Shadow view](#shadow-view) on the Live tab while running. Each
@@ -148,7 +165,7 @@ red).
    has the wheel open and will not let go (often a web browser: Firefox opens every game controller), Start
    reconnects the wheel's USB port, as if it were unplugged, and the program loses it. Only if the USB hub cannot do
    that does Start fail, naming the program: close it and press Start again.
-3. Start the game and pick the Logitech wheel in its controller settings.
+3. Start the game and pick the Target's wheel in its controller settings.
 4. **Stop** reconnects the wheel unhidden.
 
 **Mode Shim**
@@ -161,7 +178,7 @@ red).
    shim** gives it its name back. An old Ultimate ASI Loader (a Widescreen Fix from 2023, for Windows 7) is renamed
    to `d3d9.dll` instead. Only a mod built for the other processor than the game is left alone (that game is left
    out), or an old ASI Loader when `d3d9.dll` is taken.
-3. Start the game and pick the Logitech wheel. If it runs 2 minutes without a word from the shim, WheelBri warns you:
+3. Start the game and pick the Target's wheel. If it runs 2 minutes without a word from the shim, WheelBri warns you:
    check its folder on the Games tab and restart the game.
 4. At **Stop**, choose whether to delete the shims from the games' folders.
 
@@ -187,6 +204,8 @@ receives after your mapping, so it is the place to check a mapping in action.
 - **Steering**: an arc round the rim grows as you turn, reaching its end at full lock; a mark shows where the rim's top
   is.
 - **Pedals** fill as you press them; the **D-pad** lights its arms.
+- **RGT levers**: their tabs behind the rim fill as you move them, with what drives each beside it; with PEDAL SET
+  Clutch they are faint and say "off: Clutch".
 - **Shifter**: the knob sits in the gear the game sees engaged (G25 and G27 with their button panel; G920 and G923
   with the Driving Force Shifter's gate).
 - **G923 dial**: its left or right teeth light as it turns.
@@ -242,6 +261,9 @@ Heat is recognised too: it has no values, only a warning when the Target is the 
      ![A button changed for this game](images/games-buttons-remapping-done.png)
 
    - **Game file** (NFS Unbound): writes the game's hidden wheel settings with **Save to file** (game closed).
+     Race Driver: GRID: sets of lines put into the game's own files and taken out again with **Add to file** /
+     **Remove from file** (game closed; the original kept as `.before-wheelbri`): its replay controls on the wheel,
+     and, with Target RGT, its friction for the RGT ([games.md](games.md#race-driver-grid)).
 
 Values apply at once, even while the game runs. Pedal axes in Mode Shim and new games apply at the next Start.
 
@@ -272,7 +294,7 @@ Options go between `wheelbri.sh` and `%command%`, e.g.
 |---|---|---|
 | `--virtual` | yes | Mode Virtual: `wheelbri-uhid` creates the virtual wheel; the game reads it raw (Proton's `PROTON_ENABLE_HIDRAW`) and your rig is hidden from it. A WheelBri shim left in the game's folder is taken out first. |
 | `--shim` | | Mode Shim: puts `dinput8.dll` (32 or 64-bit, as the game's `.exe`; `dinput8Hooked.dll` next to the Ultimate ASI Loader) and `wheelbri-shim.ini` into the game's folder before it starts and takes them out after. Another mod's `dinput8.dll` is chained (as Start in the app does) and given back after; one built for the other processor is refused. |
-| `--target g25\|g27\|g920\|g923` | the app's Mapping tab Target, else G920 | The Logitech wheel the game sees. |
+| `--target g25\|g27\|g920\|g923\|tm_rgt` | the app's Mapping tab Target, else G920 | The wheel the game sees. |
 | `--order logitech\|native` | the app's Mapping tab Order for the Target, else the mapping's | G25 and G27: the button order the game sees, **Logitech** (as Logitech's driver numbers them) or **Native** (the wheel's own). Ignored for the G920 and G923. |
 | `--config FILE` | your saved mapping for the Target (`~/.config/wheelbri/configs/my-<target>.ini`), else WheelBri's default | The mapping to use. |
 | `--hide VID/PID[,VID/PID...]` | every device of your rig (Rig tab) | Devices hidden from the game in Mode Virtual, e.g. `--hide 0x346E/0x0005` for a Moza R3. Steam's own pad is never hidden. |
@@ -383,10 +405,10 @@ Games tab must say "shim in place"; with a non-Moza wheel check `source_vid`. Al
 [games.md](games.md).
 
 **The game sees two wheels.** Mode Virtual: close the wheel maker's software and the game, replug the device, Start
-again. Mode Shim hides nothing: pick the Logitech wheel.
+again. Mode Shim hides nothing: pick the Target's wheel.
 
 **The game drives from a gamepad or keyboard.** Close the game, unplug the gamepad, start the game again and pick the
-Logitech wheel.
+Target's wheel.
 
 **No force feedback, but the wheel works.** Alt+Tab if the status says so; check force feedback is on in the game and
 the wheel's software and `game_effects = true`; try `--ffb-test`.

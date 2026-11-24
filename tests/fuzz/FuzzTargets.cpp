@@ -10,11 +10,13 @@
 #include "wheelbri/AxisAudit.hpp"
 #include "wheelbri/AxisTuning.hpp"
 #include "wheelbri/ClassicFfb.hpp"
+#include "wheelbri/MakerFfb.hpp"
 #include "wheelbri/DeviceLabels.hpp"
 #include "wheelbri/DiEffect.hpp"
 #include "wheelbri/EmulatorConfig.hpp"
 #include "wheelbri/EvdevLayout.hpp"
 #include "wheelbri/FfbPacket.hpp"
+#include "wheelbri/FileValueMap.hpp"
 #include "wheelbri/GameProfiles.hpp"
 #include "wheelbri/GameRotation.hpp"
 #include "wheelbri/GameSettings.hpp"
@@ -334,6 +336,56 @@ void runOne(const std::span<const std::uint8_t> input) {
             break;
         }
 #endif
+        case 22: {   // a game's own XML file (GRID's ActionMap preset) and a value map ([game_files]): whatever the
+                     // bytes, add leaves every line there, remove leaves none, and on a file that held none, remove
+                     // after add gives the file back as it was
+            static const FileValueMap kMap = parseFileValueMap({
+                {"file", "ActionMap/actionMapPreset1.xml"},
+                {"note", "n"},
+                {"insert.1", "Action[actionName=Replay Pause] | end | <Axis axisName = \"b17\" />"},
+                {"insert.1.note", "n"},
+                {"insert.2", "ActionMap | start | <Action actionName = \"M\" ><Axis axisName = \"b3\" /></Action>"},
+                {"insert.2.note", "n"},
+                {"insert.3", "ActionMap | after:Action[actionName=Replay Pause] | <X/>"},
+                {"insert.3.note", "n"},
+            }).map;
+            const auto check = [](const std::string_view file, const FileValueMap& map) {
+                const FileValueState state = fileValueState(file, map);
+                CHECK(state.present.size() == map.lines.size());
+                const FileValueEdit add = addFileValues(file, map);
+                if (add.problems.empty()) {
+                    CHECK(fileValueState(add.text, map).all());
+                    const FileValueEdit back = removeFileValues(add.text, map);
+                    CHECK(back.problems.empty() && fileValueState(back.text, map).none());
+                    if (state.none() && (file.empty() || file.back() == '\n')) CHECK(back.text == file);
+                } else {
+                    CHECK(add.text.empty() && add.changed == 0 && !state.all());
+                }
+                const FileValueEdit remove = removeFileValues(file, map);
+                if (remove.problems.empty()) CHECK(fileValueState(remove.text, map).none());
+            };
+            check(text, kMap);
+            // A set line (GRID's forcefeedback/devicesetup.xml): an attribute changed and put back, nothing else.
+            static const FileValueMap kSetMap = parseFileValueMap({
+                {"file", "forcefeedback/devicesetup.xml"},
+                {"note", "n"},
+                {"set.1", "FFBDevice[name=RGT Force Feedback Pro] | baseFriction | -25.0 | 0.0"},
+                {"set.1.note", "n"},
+                {"insert.1", "FFBDevices | end | <FFBDevice name=\"W\"/>"},
+                {"insert.1.note", "n"},
+            }).map;
+            check(text, kSetMap);
+            const auto ini = IniDocument::parse(text);
+            const auto section = ini.document.sections().find("game_files");
+            if (section != ini.document.sections().end()) {
+                const ParsedFileValueMap parsed = parseFileValueMap(section->second);
+                if (parsed.problems.empty()) {
+                    check("<ActionMap>\r\n\t<Action actionName = \"Replay Pause\" >\r\n\t</Action>\r\n</ActionMap>\r\n",
+                          parsed.map);
+                }
+            }
+            break;
+        }
         case 21: {   // a Linux input device: key and axis bits (EVIOCGBIT), then events (type, code, value); every
                      // button the layout fills is one it has, 0..127
             constexpr std::size_t kKeyBytes = evdev::kKeyCount / 8;
@@ -373,6 +425,22 @@ void runOne(const std::span<const std::uint8_t> input) {
                 check();
             }
             check();
+            break;
+        }
+        case 23: {   // Thrustmaster's force reports (the RGT's maker identity): every packet sent on is a finite
+                     // constant force in slot 0, -1..1
+            MakerFfb ffb(
+                [](const FfbPacket& p) {
+                    CHECK(p.slot == 0 && p.effect.type == FfbEffectType::Constant);
+                    CHECK(std::isfinite(p.effect.constantLevel) && std::abs(p.effect.constantLevel) <= 1.0F);
+                },
+                [](LogLevel, const std::string&) {});
+            std::int64_t now = 0;
+            for (std::size_t i = 0; i < bytes.size(); i += 5) {
+                ffb.output(bytes.subspan(i, std::min<std::size_t>(5, bytes.size() - i)), now);
+                ffb.tick(now += bytes[i] % 600);
+            }
+            ffb.stopAll(now);
             break;
         }
     }

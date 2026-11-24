@@ -59,6 +59,20 @@ JoystickLayout layoutFor(const std::string_view profile, const std::size_t butto
         layout.clutch = ObjectGuid::Slider1;
         layout.combined = ObjectGuid::Slider;
     }
+    // The RGT: its five axes, as its virtual device (VirtualWheel rgtAxes): brake Y, gas Rz, Slider 0, Slider 1. What
+    // each carries in the RGT's mode ([tm_rgt] axes, pedal_set) the service has already put in the report (withRgtMode).
+    if (profile == "tm_rgt") {
+        layout.throttle = ObjectGuid::RzAxis;
+        layout.brake = ObjectGuid::YAxis;
+        layout.clutch = ObjectGuid::Slider;   // the clutch, or the left lever with 5 axes and Levers
+        layout.lever = ObjectGuid::Slider1;   // the right lever with 5 axes and Levers, at rest otherwise
+    }
+    // The TMX: brake Y, gas Rz, clutch Slider 0, as DiRT Rally 2.0's TMX preset reads them (VirtualWheel::brakeOnY).
+    if (profile == "tmx") {
+        layout.throttle = ObjectGuid::RzAxis;
+        layout.brake = ObjectGuid::YAxis;
+        layout.clutch = ObjectGuid::Slider;
+    }
     return layout;
 }
 
@@ -114,6 +128,10 @@ EmulatedJoystick::EmulatedJoystick(const JoystickLayout& layout) : invertPedals_
         layout.combined != ObjectGuid::XAxis && layout.combined != layout.throttle &&
         layout.combined != layout.brake && layout.combined != layout.clutch) {
         axes.push_back({layout.combined, Control::Combined, "Combined pedals"});
+    }
+    if (layout.lever != ObjectGuid::Any && axisInfo(layout.lever) != nullptr && layout.lever != ObjectGuid::XAxis &&
+        std::none_of(axes.begin(), axes.end(), [&](const Axis& axis) { return axis.guid == layout.lever; })) {
+        axes.push_back({layout.lever, Control::Lever, "Lever"});
     }
     // HID devices list (and number) their axes in usage order: X, Y, Z, Rx, Ry, Rz, Slider (Slider 0, then 1).
     std::sort(axes.begin(), axes.end(), [](const Axis& a, const Axis& b) {
@@ -300,6 +318,7 @@ std::uint32_t EmulatedJoystick::valueOf(const std::size_t index, const TargetRep
         case Control::Brake: return scaled(pedal(report.brake));
         case Control::Clutch: return scaled(pedal(report.clutch));
         case Control::Combined: return scaled(report.combined);
+        case Control::Lever: return scaled(pedal(report.rightLever));
         case Control::Button: return ((report.buttons >> object.buttonIndex) & 1U) != 0 ? di::kButtonDown : 0;
         case Control::Pov:
             return report.hat >= 0 && report.hat < 8 ? static_cast<std::uint32_t>(report.hat) * 4500U

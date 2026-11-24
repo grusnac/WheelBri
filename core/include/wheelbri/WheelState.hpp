@@ -40,6 +40,8 @@ struct WheelState {
     float throttle = 0.0F;              // 0 (released) .. 1 (fully pressed)
     float brake = 0.0F;
     float clutch = 0.0F;
+    float leftLever = 0.0F;             // the RGT's progressive levers behind the rim, as the pedals (0 .. 1)
+    float rightLever = 0.0F;
     std::uint32_t buttons = 0;          // bit n = target button n pressed
     std::int8_t hat = kHatCentered;
 };

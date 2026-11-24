@@ -51,7 +51,7 @@ protected:
             {L"ucrt\\Windows8.1-KB2999226-x64.msu", "msu81"},
         };
         for (const auto& [name, bytes] : files) s.addFile(joinPath(kPackage, name), bytes);
-        for (const wchar_t* t : {L"g25", L"g27", L"g920", L"g923"}) {
+        for (const wchar_t* t : {L"g25", L"g27", L"g920", L"g923", L"tm_rgt", L"tmx"}) {
             s.addFile(kPackage + L"\\config\\" + t + L".ini", defaultConfig(t));
         }
         for (const wchar_t* d : {L"driver\\x64\\Release\\wheelbri-wheel\\wheelbri-wheel",
@@ -132,7 +132,7 @@ TEST_F(SetupStepsTest, InstallOnWindows11PutsEverythingInPlace) {
     EXPECT_EQ(lines.size(), s.filesUnder(kDir).size() - 1);
     // The defaults' hashes, for the uninstaller.
     const ConfigHashes defaults = readDefaultConfigs(s.bytes(kDir + L"\\default-configs.txt"));
-    EXPECT_EQ(defaults.size(), 5U);
+    EXPECT_EQ(defaults.size(), 7U);
     EXPECT_EQ(defaults.at(L"config\\g920.ini"), sha256Hex(defaultConfig(L"g920")));
     // The drivers, the old certificates, the helper and the filter on the saved rig, in that order.
     const size_t wheel = s.ranAt(L"install-driver.ps1"), hide = s.ranAt(L"install-hide.ps1");
@@ -876,6 +876,27 @@ TEST_F(UninstallTest, RemovesOnlyItsOwnDirectInputEntries) {
     EXPECT_TRUE(s.regKeyExists(Hive::Machine, real + L"\\Axes"));
     EXPECT_EQ(s.regText(Hive::CurrentUser, mixed, L"OEMName"), std::nullopt);
     EXPECT_EQ(*s.regText(Hive::CurrentUser, mixed, L"Other"), L"theirs");
+}
+
+// The RGT's: Thrustmaster's installer writes the same OEMName as WheelBri, so only WheelBri's marked values go; a real
+// RGT's entry (its OEMForceFeedback, its Thrustmaster key) stays whole, even with WheelBri's name in it.
+TEST_F(UninstallTest, RemovesTheRgtEntryOnlyWithWheelBrisMark) {
+    const std::wstring oem = L"CurrentControlSet\\Control\\MediaProperties\\PrivateProperties\\Joystick\\OEM\\";
+    const std::wstring ours = L"System\\" + oem + L"VID_044F&PID_B653";
+    s.regSetText(Hive::CurrentUser, ours, L"OEMName", L"RGT Force Feedback Pro");
+    s.regSetText(Hive::CurrentUser, ours, L"OEMData", L"x");
+    s.regSetDword(Hive::CurrentUser, ours, L"WheelBri", 1);
+    const std::wstring theirs = L"SYSTEM\\" + oem + L"VID_044F&PID_B653";
+    s.regSetText(Hive::Machine, theirs, L"OEMName", L"RGT Force Feedback Pro");
+    s.regSetText(Hive::Machine, theirs, L"OEMData", L"x");
+    s.regSetText(Hive::Machine, theirs + L"\\OEMForceFeedback", L"CLSID", L"{C3CF74D5-5C84-4c28-8FD3-0274CBEBF79E}");
+    s.regSetText(Hive::Machine, theirs + L"\\Thrustmaster\\InternalParams", L"IsFiveAxisMode", L"1");
+    ASSERT_EQ(run(), 0);
+    EXPECT_FALSE(s.regKeyExists(Hive::CurrentUser, ours));   // nothing else was in it
+    EXPECT_EQ(*s.regText(Hive::Machine, theirs, L"OEMName"), L"RGT Force Feedback Pro");
+    EXPECT_EQ(*s.regText(Hive::Machine, theirs, L"OEMData"), L"x");
+    EXPECT_TRUE(s.regKeyExists(Hive::Machine, theirs + L"\\OEMForceFeedback"));
+    EXPECT_TRUE(s.regKeyExists(Hive::Machine, theirs + L"\\Thrustmaster\\InternalParams"));
 }
 
 TEST_F(UninstallTest, FirefoxKeysGoWhenNothingElseIsInThem) {

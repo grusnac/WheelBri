@@ -6,6 +6,7 @@
 ; wheel it is. Called wheelbri-g920 until 2026-10-19; install-driver.ps1 removes that package.
 ; wheelbri\G923_TF is the G923's TrueForce interface, a second device the service makes with it on request.
 ; wheelbri\G25_LOGI and wheelbri\G27_LOGI are those wheels' classic identities, for Logitech's own force feedback driver.
+; wheelbri\TM_RGT_TM is the RGT's maker's identity (the real wheel's descriptor), for Thrustmaster's own driver.
 ; Install: driver\install-driver.ps1 (Administrator).
 ; Needs Windows 11 (MsHidUmdf.inf, 22000+).
 ;
@@ -37,6 +38,9 @@ wheelbri-wheel.dll=1
 %DeviceDescG25Logi%=WheelbriWheel, wheelbri\G25_LOGI
 %DeviceDescG27Logi%=WheelbriWheel, wheelbri\G27_LOGI
 %DeviceDescG923%=WheelbriWheel, wheelbri\G923
+%DeviceDescRgt%=WheelbriWheel, wheelbri\TM_RGT
+%DeviceDescRgtTm%=WheelbriWheel, wheelbri\TM_RGT_TM
+%DeviceDescTmx%=WheelbriWheel, wheelbri\TMX
 %DeviceDescG923TF%=WheelbriWheel, wheelbri\G923_TF
 
 [WheelbriWheel.NT]
@@ -86,4 +90,7 @@ DeviceDescG27="Logitech G27 Racing Wheel USB (wheelbri)"
 DeviceDescG25Logi="Logitech G25 Racing Wheel USB (wheelbri, Logitech driver)"
 DeviceDescG27Logi="Logitech G27 Racing Wheel USB (wheelbri, Logitech driver)"
 DeviceDescG923="Logitech G923 Racing Wheel for Xbox One and PC (wheelbri)"
+DeviceDescRgt="Thrustmaster RGT Force Feedback Pro (wheelbri)"
+DeviceDescRgtTm="Thrustmaster RGT Force Feedback Pro (wheelbri, Thrustmaster driver)"
+DeviceDescTmx="Thrustmaster TMX Racing Wheel (wheelbri)"
 DeviceDescG923TF="Logitech G923 Racing Wheel for Xbox One and PC TrueForce (wheelbri)"

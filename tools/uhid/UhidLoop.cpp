@@ -69,7 +69,8 @@ ParsedOptions parseOptions(const std::vector<std::string>& args) {
             return result;
         } else if (arg == "--target") {
             if (virtualWheel(value) == nullptr) {
-                result.error = "--target: '" + value + "' is not a wheel WheelBri emulates (g25, g27, g920, g923)";
+                result.error =
+                    "--target: '" + value + "' is not a wheel WheelBri emulates (" + std::string(kKnownProfiles) + ")";
                 return result;
             }
             o.target = value;

@@ -267,18 +267,23 @@ void MappingEditView::drawGames() {
         top = drawGameFolder(&game, folder != gameFolders_.end() ? std::optional<std::size_t>(folder->second)
                                                                  : std::nullopt,
                              top);
-        if (gameTab_ == GameTab::File && game.settings.empty()) gameTab_ = GameTab::Controls;
+        const bool ownFile = !game.settings.empty() || !gameFilesFor(game, picker_.profileName()).empty();
+        if (gameTab_ == GameTab::File && !ownFile) gameTab_ = GameTab::Controls;
         float x = gameX();
         const auto tab = [&](const GameTab which, const char* label) {
             x += button(x, top + 4, label, [this, which] { gameTab_ = which; }, gameTab_ == which, true) + 6;
         };
         // The game's axes and its buttons on one page; its force feedback is the Live tab's (nothing to set).
         tab(GameTab::Controls, "Axes and buttons");
-        if (!game.settings.empty()) tab(GameTab::File, "Game file");
+        if (ownFile) tab(GameTab::File, "Game file");
         top += 28;
         switch (gameTab_) {
             case GameTab::Controls: drawGameButtons(picked, drawGameAxes(picked, top) + 12); break;
-            case GameTab::File: drawGameSettings(picked, top); break;
+            case GameTab::File: {
+                const float below = drawGameSettings(picked, top);
+                drawGameFiles(picked, game.settings.empty() ? below : below + 8);
+                break;
+            }
         }
     }
 
@@ -839,7 +844,7 @@ void MappingEditView::setPicked(const SourceRef& source) {
         slot(pickKind_, pickIndex_) = source;
         // Picked: the user's own from now on, written in the file, no longer the Rig's.
         AutoInputs& autos = edit_.autoInputs;
-        if (pickKind_ == Slot::Axis) autos.axes[pickIndex_] = false;
+        if (pickKind_ == Slot::Axis && pickIndex_ < autos.axes.size()) autos.axes[pickIndex_] = false;
         if (pickKind_ == Slot::Hat) autos.hat[pickIndex_] = false;
         if (pickKind_ == Slot::Button && pickIndex_ < autos.buttons.size()) autos.buttons[pickIndex_] = false;
         return;
@@ -1430,6 +1435,181 @@ void MappingEditView::saveGameFile(const std::size_t index) {
             statusError_ = true;
             WE_LOG_WARN(log(), "game settings: {}: not written to {}: {}", game.label, pathToUtf8(result.file),
                         result.why);
+            break;
+    }
+}
+
+// --- the game's own XML file (a profile's [game_files], GameFiles.hpp) --------------------------------------------
+
+std::filesystem::path MappingEditView::gameFolderOf(const GameProfile& game) const {
+    if (shims_ != nullptr) {
+        const auto folder = gameFolders_.find(game.id);
+        if (folder != gameFolders_.end() && folder->second < shims_->folders().size()) {
+            return shims_->folders()[folder->second].folder;
+        }
+    }
+    if (!game.path.empty()) return pathFromUtf8(game.path).parent_path();
+    return {};
+}
+
+namespace {
+
+// "Action[actionName=Replay Pause]" -> "Replay Pause"; "ActionMap" -> "ActionMap": the parent as the list shows it.
+std::string parentLabel(const std::string& key) {
+    const std::size_t equals = key.find('=');
+    if (key.find('[') == std::string::npos || equals == std::string::npos || key.back() != ']') return key;
+    std::string value = key.substr(equals + 1, key.size() - equals - 2);
+    while (!value.empty() && value.front() == ' ') value.erase(0, 1);
+    return value;
+}
+
+}  // namespace
+
+float MappingEditView::drawGameFiles(const std::size_t index, float y) {
+    const GameProfile& game = games_[index];
+    const std::vector<const FileValueMap*> sets = gameFilesFor(game, picker_.profileName());
+    if (sets.empty()) return y;
+    gameSection(y, "GAME FILE", "lines WheelBri adds to the game's own file, and takes out again");
+    y += 16;
+    const std::filesystem::path folder = gameFolderOf(game);
+    for (const FileValueMap* const set : sets) {
+        const FileValueMap& map = *set;
+        const auto setIndex = static_cast<std::size_t>(set - game.gameFiles.data());
+        window_.text(gameX(), y, fit(map.file + ": " + map.note, gameChars()), kDim);
+        tip(gameX(), y - 2, canvasW() - gameX() - 4, 14, map.file + " in the game's folder: " + map.note);
+        y += 16;
+
+        // What the file holds now, read every 2 s, and again when the game or its folder changes.
+        const std::uint64_t readNow = nowMs();
+        const std::string key = game.id + "|" + pathToUtf8(folder) + "|" + map.file;
+        auto read = gameFilesStates_.find(key);
+        if (read == gameFilesStates_.end() || readNow - read->second.ms >= kFileStateEveryMs) {
+            read = gameFilesStates_.insert_or_assign(key, GameFilesRead{readGameFilesState(folder, map), readNow})
+                       .first;
+        }
+        const GameFilesState& state = read->second.state;
+        using Status = GameFilesState::Status;
+        const std::size_t total = map.lines.size();
+        const std::size_t in = state.lines.presentCount;
+        std::string line;
+        Colour colour = kDim;
+        switch (state.status) {
+            case Status::NoFolder:
+                line = "the game's folder is not known: Choose folder... (FOLDER, above)";
+                colour = kCaution;
+                break;
+            case Status::NoFile:
+                line = state.why;
+                colour = kCaution;
+                break;
+            case Status::Unreadable:
+                line = "cannot be changed: " + state.why;
+                colour = kWarning;
+                break;
+            case Status::Read:
+                line = total == 1 ? std::string(in == 1 ? "in the file" : "not in the file")
+                       : in == total ? "all " + std::to_string(total) + " lines"
+                       : in == 0     ? std::string("none of the ") + std::to_string(total) + " lines"
+                                     : "some: " + std::to_string(in) + " of " + std::to_string(total) + " lines";
+                colour = in == total ? kActive : in == 0 ? kDim : kCaution;
+                break;
+        }
+        window_.text(gameX(), y + 4, "In the file", kText);
+        window_.text(gameValueX(), y + 4, fit(line, valueChars()), colour);
+        if (state.status == Status::Unreadable || state.status == Status::NoFile) {
+            tip(gameValueX(), y, canvasW() - gameValueX() - 4, 16, line);
+        }
+        y += 20;
+        // One button: Add to file (none in), Remove from file (all in); some in: Add the rest and Remove from file.
+        const bool can = !locked_ && state.status == Status::Read;
+        float x = gameValueX();
+        if (state.status != Status::Read || in < total) {
+            const char* const label = state.status == Status::Read && in > 0 ? "Add the rest" : "Add to file";
+            x += button(x, y, label, [this, index, setIndex] { changeGameFiles(index, setIndex, true); }, can, can,
+                        136) + 8;
+        }
+        if (state.status == Status::Read && in > 0) {
+            x += button(x, y, "Remove from file", [this, index, setIndex] { changeGameFiles(index, setIndex, false); },
+                        false, can, 136) + 8;
+        }
+        window_.text(x, y + 4,
+                     fit(locked_ ? "Stop first (the game reads the file when it starts)"
+                                 : "game closed; keeps the original as .before-wheelbri",
+                         valueChars() > 40 ? valueChars() - 36 : 4),
+                     kDim);
+        y += 26;
+
+        // Each line: where it goes and the element (a set line: the attribute, from -> to), green when in the file;
+        // below it, what it does in the game.
+        for (std::size_t i = 0; i < total; ++i) {
+            if (y > contentH() - 52 - 24) {
+                window_.text(gameX(), y,
+                             fit("... " + std::to_string(total - i) + " more lines (a larger window shows them)",
+                                 gameChars()),
+                             kDim);
+                return y + 12;
+            }
+            const FileValueLine& entry = map.lines[i];
+            const bool present =
+                state.status == Status::Read && i < state.lines.present.size() && state.lines.present[i];
+            const bool setLine = entry.kind == FileValueLine::Kind::Set;
+            const std::string what = setLine ? entry.attribute + " " + entry.from + " -> " + entry.to
+                                             : collapseSpaces(entry.value);
+            window_.text(gameX(), y, fit(parentLabel(entry.parent), 19), present ? kActive : kText);
+            window_.text(gameValueX(), y, fit(what, valueChars()), present ? kActive : kDim);
+            tip(gameX(), y - 2, canvasW() - gameX() - 4, 14,
+                (setLine ? shownFileValueLine(entry) : entry.parent + ": " + what) +
+                    (present ? " (in the file)" : " (not in the file)"));
+            y += 12;
+            for (const std::string& noteLine : wrap(entry.note, valueChars(), 3)) {
+                window_.text(gameValueX(), y, noteLine, kText);
+                y += 12;
+            }
+            y += 6;
+        }
+        y += 8;   // a gap before the next set
+    }
+    return y;
+}
+
+void MappingEditView::changeGameFiles(const std::size_t index, const std::size_t set, const bool add) {
+    const GameProfile& game = games_[index];
+    if (set >= game.gameFiles.size()) return;
+    const FileValueMap& map = game.gameFiles[set];
+    // The game reads the file when it starts: only with it closed.
+    if (const auto programs = runningPrograms()) {
+        for (const RunningProgram& program : *programs) {
+            if (programName(program.name) == game.program) {
+                status_ = game.label + " is running: close it first, then press the button again.";
+                statusError_ = true;
+                return;
+            }
+        }
+    }
+    const GameFilesResult result =
+        add ? addGameFiles(gameFolderOf(game), map) : removeGameFiles(gameFolderOf(game), map);
+    gameFilesStates_.clear();
+    using Outcome = GameFilesResult::Outcome;
+    switch (result.outcome) {
+        case Outcome::Written:
+            WE_LOG_INFO(log(), "game file: {}: {} {} lines {} {} (the original is kept as {})", game.label,
+                        add ? "put" : "took", result.changed, add ? "into" : "out of", pathToUtf8(result.file),
+                        pathToUtf8(result.backup));
+            status_ = std::string(add ? "Added " : "Removed ") + std::to_string(result.changed) +
+                      (result.changed == 1 ? " line " : " lines ") +
+                      (add ? "to " : "from ") + map.file + ".";
+            statusError_ = false;
+            break;
+        case Outcome::AsAsked:
+            status_ = map.file + (add ? " already holds every line." : " holds none of the lines.");
+            statusError_ = false;
+            break;
+        case Outcome::NoFile:
+        case Outcome::Refused:
+        case Outcome::Failed:
+            status_ = "Not changed: " + result.why + ".";
+            statusError_ = true;
+            WE_LOG_WARN(log(), "game file: {}: {} not changed: {}", game.label, pathToUtf8(result.file), result.why);
             break;
     }
 }

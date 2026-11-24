@@ -25,4 +25,4 @@ Only the latest release gets security fixes.
 - Force feedback reaching the wheel around the safety limits.
 - The shim (`dinput8.dll`) in a game's folder, `install-udev-rules.sh` and `wheelbri.sh`.
 
-Logitech's software, G HUB and games are out of scope: report those to their makers.
+Wheel makers' software (such as Logitech G HUB) and games are out of scope: report those to their makers.

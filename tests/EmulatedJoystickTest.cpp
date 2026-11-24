@@ -3,9 +3,12 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <limits>
+#include <string>
+#include <vector>
 
 namespace wheelbri {
 namespace {
@@ -471,6 +474,96 @@ TEST(EmulatedJoystick, CombinedPedalsNeedAFreeAxis) {
         other.combined = taken;
         EXPECT_EQ(EmulatedJoystick(other).axisCount(), 4U) << static_cast<int>(taken);
     }
+}
+
+// The RGT: five axes, as its virtual device: brake Y, gas Rz, Slider 0, the right lever on Slider 1.
+TEST(EmulatedJoystick, RgtLayoutIsBrakeYGasRzSlider0LeverSlider1) {
+    const JoystickLayout layout = layoutFor("tm_rgt", 10);
+    EXPECT_TRUE(isValid(layout));
+    EXPECT_EQ(layout.throttle, ObjectGuid::RzAxis);
+    EXPECT_EQ(layout.brake, ObjectGuid::YAxis);
+    EXPECT_EQ(layout.clutch, ObjectGuid::Slider);
+    EXPECT_EQ(layout.combined, ObjectGuid::Any);
+    EXPECT_EQ(layout.lever, ObjectGuid::Slider1);
+    // Five axes, as a real RGT; at rest the lever reads released (GRID reads it as a second throttle).
+    const EmulatedJoystick joystick(layout);
+    EXPECT_EQ(joystick.axisCount(), 5U);
+    const auto lever = std::find_if(joystick.objects().begin(), joystick.objects().end(),
+                                    [](const EmulatedObject& o) { return o.control == Control::Lever; });
+    ASSERT_NE(lever, joystick.objects().end());
+    TargetReport rest;
+    rest.rightLever = 65535;
+    const auto index = static_cast<std::size_t>(lever - joystick.objects().begin());
+    EXPECT_EQ(joystick.valueOf(index, rest), 65535U);
+}
+
+// The RGT's axes in Mode Shim follow [tm_rgt] as its virtual device does: the shim reads what withRgtMode put in the report
+// (Y brake, Rz throttle, Slider 0 clutch, Slider 1 rightLever), so each mode gives the axes the manual's table gives.
+TEST(EmulatedJoystick, RgtAxesFollowEachMode) {
+    const EmulatedJoystick joystick(layoutFor("tm_rgt", 10));
+    // DirectInput's axis order on a HID wheel: X, Y, Rz, Slider 0, Slider 1.
+    std::vector<std::size_t> axes;
+    for (std::size_t i = 0; i < joystick.objects().size(); ++i) {
+        if (joystick.objects()[i].isAxis()) axes.push_back(i);
+    }
+    ASSERT_EQ(axes.size(), 5U);
+    EXPECT_EQ(joystick.objects()[axes[1]].guid, ObjectGuid::YAxis);
+    EXPECT_EQ(joystick.objects()[axes[2]].guid, ObjectGuid::RzAxis);
+    EXPECT_EQ(joystick.objects()[axes[3]].guid, ObjectGuid::Slider);
+    EXPECT_EQ(joystick.objects()[axes[4]].guid, ObjectGuid::Slider);
+    EXPECT_LT(joystick.objects()[axes[3]].nativeOffset, joystick.objects()[axes[4]].nativeOffset);
+
+    // Pressed further = lower; every control apart, the levers pressed further than their pedals.
+    TargetReport input;
+    input.throttle = 10000;
+    input.brake = 20000;
+    input.clutch = 30000;
+    input.leftLever = 500;
+    input.rightLever = 700;
+    struct Case {
+        RgtMode mode;
+        std::uint32_t y, rz, slider0, slider1;
+    };
+    const Case cases[] = {
+        {{RgtAxes::Five, RgtPedalSet::Clutch}, 20000, 10000, 30000, 65535},
+        {{RgtAxes::Three, RgtPedalSet::Clutch}, 20000, 10000, 30000, 65535},   // the clutch always means 5 axes
+        {{RgtAxes::Two, RgtPedalSet::Clutch}, 20000, 10000, 30000, 65535},
+        {{RgtAxes::Five, RgtPedalSet::Levers}, 20000, 10000, 500, 700},
+        {{RgtAxes::Three, RgtPedalSet::Levers}, 500, 700, 65535, 65535},
+        {{RgtAxes::Two, RgtPedalSet::Levers}, (65535 + 700 - 500) / 2, 65535, 65535, 65535},
+    };
+    for (const Case& c : cases) {
+        const TargetReport report = withRgtMode(input, c.mode);
+        const std::string mode = std::to_string(static_cast<int>(c.mode.axes)) +
+                                 (c.mode.pedalSet == RgtPedalSet::Clutch ? " clutch" : " levers");
+        EXPECT_EQ(joystick.valueOf(axes[1], report), c.y) << mode;
+        EXPECT_EQ(joystick.valueOf(axes[2], report), c.rz) << mode;
+        EXPECT_EQ(joystick.valueOf(axes[3], report), c.slider0) << mode;
+        EXPECT_EQ(joystick.valueOf(axes[4], report), c.slider1) << mode;
+    }
+}
+
+// The shim's wheelbri-shim.ini or a game profile puts a pedal on Slider 1: the lever axis is left out.
+TEST(EmulatedJoystick, RgtLeverLeftOutWhenAPedalTakesSlider1) {
+    JoystickLayout layout = layoutFor("tm_rgt", 10);
+    layout.clutch = ObjectGuid::Slider1;
+    ASSERT_TRUE(isValid(layout));
+    const EmulatedJoystick joystick(layout);
+    EXPECT_EQ(joystick.axisCount(), 4U);
+    EXPECT_TRUE(std::none_of(joystick.objects().begin(), joystick.objects().end(),
+                             [](const EmulatedObject& o) { return o.control == Control::Lever; }));
+}
+
+// The TMX: brake Y, gas Rz, clutch Slider 0, as DiRT Rally 2.0's TMX preset reads them; four axes.
+TEST(EmulatedJoystick, TmxLayoutIsBrakeYGasRzClutchSlider0) {
+    const JoystickLayout layout = layoutFor("tmx", 13);
+    EXPECT_TRUE(isValid(layout));
+    EXPECT_EQ(layout.throttle, ObjectGuid::RzAxis);
+    EXPECT_EQ(layout.brake, ObjectGuid::YAxis);
+    EXPECT_EQ(layout.clutch, ObjectGuid::Slider);
+    EXPECT_EQ(layout.combined, ObjectGuid::Any);
+    EXPECT_EQ(layout.lever, ObjectGuid::Any);
+    EXPECT_EQ(EmulatedJoystick(layout).axisCount(), 4U);
 }
 
 }  // namespace

@@ -38,6 +38,9 @@ TEST(AxisTuning, Ranges) {
     EXPECT_TRUE(tuning::rotationProblem(2520.0F).empty());
     EXPECT_FALSE(tuning::rotationProblem(89.0F).empty());
     EXPECT_FALSE(tuning::rotationProblem(3000.0F).empty());
+    // With the Target's own most: up to it, not past it.
+    EXPECT_TRUE(tuning::rotationProblem(900.0F, 900.0F).empty());
+    EXPECT_EQ(tuning::rotationProblem(910.0F, 900.0F), "a rotation is 90 to 900 degrees");
 }
 
 // Numbers as people type them: tabs around, a unit with a space, digits only after the point, a lone "-" or ".".

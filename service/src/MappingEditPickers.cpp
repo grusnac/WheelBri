@@ -514,7 +514,7 @@ void MappingEditView::moveHere(const SourceRef& source) {
         switch (use.kind) {
             case ControlUse::Kind::Axis:
                 edit_.axes[i] = {};
-                autos.axes[i] = false;   // taken away on purpose: the Rig does not give it back
+                if (i < autos.axes.size()) autos.axes[i] = false;   // taken away on purpose: the Rig does not give it back
                 break;
             case ControlUse::Kind::Hat:
                 edit_.hat[i] = {};

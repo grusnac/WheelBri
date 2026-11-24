@@ -851,7 +851,7 @@ void paint(HDC dc) {
     switch (g.page) {
     case kWelcome: {
         text(dc, L"WELCOME TO WHEELBRI " + g.version, x, 26, w, 30, kHeading, g.big);
-        text(dc, L"Your rig as a Logitech G25, G27, G920 or G923, so games accept it, with force feedback.", x, 60, w,
+        text(dc, L"Your rig as a wheel games know (Logitech G25, G27, G920 or G923), with force feedback.", x, 60, w,
              40, kDim, g.font);
         fill(dc, x, 112, w, 150, kRail);
         text(dc, L"WHAT SETUP FOUND", x + 14, 122, w, 18, kDim, g.small);
@@ -872,7 +872,7 @@ void paint(HDC dc) {
         text(dc, L"\u2713", x + 14, 226, 16, 20, kActive, g.font);
         text(dc, L"Running as Administrator (needed for the drivers)", x + 36, 226, w - 50, 20, kText, g.font);
         text(dc, L"WheelBri is free software under the GNU GPL v3 or later (LICENSE.txt), with no warranty. "
-                 L"It is not affiliated with or endorsed by Logitech; Logitech and its wheel names are its trademarks.",
+                 L"It is not affiliated with or endorsed by any wheel maker; wheel names are trademarks of their owners.",
              x, 290, w, 60, kDim, g.font);
         text(dc, L"Close WheelBri and any game before you go on. Setup closes a running WheelBri for you.", x, 440, w,
              40, kDim, g.font);

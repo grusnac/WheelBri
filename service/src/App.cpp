@@ -164,6 +164,7 @@ public:
         view_->setDevices(info.devices, info.devicesWarning);
         view_->setAccessories(info.accessories);
         view_->setButtonOrder(info.buttonOrder);
+        view_->setRgtMode(info.rgtMode);
         mappingShown_ = 0;   // the session's count starts again with it
         return true;
     }
@@ -402,7 +403,8 @@ private:
             *editorPane_, ConfigPicker::Settings{settings_.builtInConfigFolder, settings_.userConfigFolder,
                                              settings_.stateFile,
                                              ConfigPicker::virtualDeviceSupported(windowsBuild),
-                                             ConfigPicker::windowsName(windowsBuild), settings_.trueForceSdk});
+                                             ConfigPicker::windowsName(windowsBuild), settings_.trueForceSdk,
+                                             settings_.makerFfbDriver});
         setup_ = std::make_unique<WheelSetupView>(
             *window_, WheelSetupView::Settings{rigsFolder(), settings_.devicesFolder, settings_.stateFile, &devices_});
         MappingView::setEditorTabs(true);   // the live view's tab bar has Mapping (the editor), Live and Games
@@ -929,6 +931,7 @@ private:
         if (needsProblem_.empty() && configRead) {
             needsProblem_ = targetProblem(config, picker_->profileName());
         }
+        if (needsProblem_.empty() && configRead) needsProblem_ = leversProblem(config);
         // The virtual device needs Administrator or the WheelBri Helper; the shim needs neither.
         helperMissing_ = !shimTarget() && !PrivilegedSteps::available();
         if (devices_.unavailable()) {
@@ -1128,6 +1131,7 @@ private:
                 view_->setDevices(info->devices, info->devicesWarning);
                 view_->setAccessories(info->accessories);
                 view_->setButtonOrder(info->buttonOrder);
+                view_->setRgtMode(info->rgtMode);
                 mappingShown_ = 0;   // the session's count starts again with it
                 view_->setHeaderChars(sessionShim_ ? kHeaderCharsShim : kHeaderChars);
                 view_->setShimMode(sessionShim_);

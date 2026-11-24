@@ -51,7 +51,25 @@ TEST(StatePacket, LayoutIsLittleEndianWithMagicFirst) {
     EXPECT_EQ(bytes[32], 7);                    // hat
     EXPECT_EQ(bytes[33], 0xCD);                 // combined, low byte first
     EXPECT_EQ(bytes[34], 0xAB);
-    EXPECT_EQ(bytes.size(), 37U);
+    EXPECT_EQ(bytes.size(), 45U);
+}
+
+// The RGT's levers after combined: left at 37, right at 41, low byte first; clamped as the other axes.
+TEST(StatePacket, CarriesTheLevers) {
+    StatePacket packet = samplePacket();
+    packet.report.leftLever = 0x1234;
+    packet.report.rightLever = 0x5678;
+    const auto bytes = encode(packet);
+    EXPECT_EQ(bytes[37], 0x34);
+    EXPECT_EQ(bytes[38], 0x12);
+    EXPECT_EQ(bytes[41], 0x78);
+    EXPECT_EQ(bytes[42], 0x56);
+    const auto decoded = decodeStatePacket(bytes);
+    ASSERT_TRUE(decoded.has_value());
+    EXPECT_EQ(decoded->report.leftLever, 0x1234);
+    EXPECT_EQ(decoded->report.rightLever, 0x5678);
+    packet.report.rightLever = 70000;
+    EXPECT_EQ(decodeStatePacket(encode(packet))->report.rightLever, 65535);
 }
 
 TEST(StatePacket, CombinedIsClampedLikeTheOtherAxes) {

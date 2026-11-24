@@ -43,6 +43,7 @@
 #include "wheelbri/Rig.hpp"
 #include "wheelbri/SenderGate.hpp"
 #include "wheelbri/ShimGames.hpp"
+#include "wheelbri/StartNeeds.hpp"
 #include "wheelbri/Telemetry.hpp"
 #include "wheelbri/TrueForce.hpp"
 #include "wheelbri/UdpLoopback.hpp"
@@ -699,6 +700,7 @@ public:
     }
 
     [[nodiscard]] const wheelbri::FfbController& controller() const override { return *controller_; }
+    void setCentringSpring(const float percent) override { controller_->setCentringSpring(percent); }
     // The socket the game's packets arrive on (the loop waits for it).
     [[nodiscard]] std::intptr_t socket() const { return listener_->nativeSocket(); }
 
@@ -999,6 +1001,7 @@ void WindowSide::followAntiDeadZone() {
 }
 
 void WindowSide::followCombinedPedals() {
+    if (pipeline_.rgtMode()) return;   // the RGT's pedals follow its [tm_rgt] mode, never combined pedals
     const bool on = gameCombinedPedals_.value_or(config_.combinedPedals);
     if (pipeline_.combinedPedals() != on) pipeline_.setCombinedPedals(on);
     const std::string line =
@@ -1231,7 +1234,18 @@ int runLoop(wheelbri::EmulatorConfig& config, const ReloadConfig& reload, const 
         WE_LOG_INFO(log(), "buttons: the {}'s native order ([buttons] order = native)", profile->identity().shortName);
     }
     pipeline.setCombinedPedals(config.combinedPedals);
-    WE_LOG_INFO(log(), "{} at Start", wheelbri::pedalsLogLine(config.combinedPedals, "the Mapping tab's [pedals] combined"));
+    if (profile->identity().shortName == "RGT") {
+        // The RGT's pedals follow its axis mode and pedal set ([tm_rgt]), as the real wheel: no combined pedals.
+        pipeline.setRgtMode(config.rgt);
+        const wheelbri::RgtMode rgt = config.rgt;
+        const bool clutch = rgt.pedalSet == wheelbri::RgtPedalSet::Clutch;
+        WE_LOG_INFO(log(), "pedals: the RGT's {} axes with the {} at Start ([tm_rgt]{}); combined pedals do not apply",
+                    static_cast<int>(rgt.effectiveAxes()), clutch ? "clutch" : "levers",
+                    rgt.effectiveAxes() != rgt.axes ? ": the clutch always means 5 axes" : "");
+    } else {
+        WE_LOG_INFO(log(), "{} at Start",
+                    wheelbri::pedalsLogLine(config.combinedPedals, "the Mapping tab's [pedals] combined"));
+    }
     pipeline.setAntiDeadZone(config.antiDeadZonePercent);
     WE_LOG_INFO(log(), "{} at Start",
                 wheelbri::antiDeadZoneLogLine(config.antiDeadZonePercent, "the Mapping tab's [steering] anti_deadzone"));
@@ -1259,6 +1273,7 @@ int runLoop(wheelbri::EmulatorConfig& config, const ReloadConfig& reload, const 
         info.targetProfile = config.targetProfile;
         info.mapper = config.mapper;
         info.buttonOrder = config.buttonOrder;
+        info.rgtMode = pipeline.rgtMode();
         info.accessories = accessories.labels;
         info.files.logFolder = logFolder;
         info.files.logToFile = logToFile;
@@ -1293,6 +1308,10 @@ int runLoop(wheelbri::EmulatorConfig& config, const ReloadConfig& reload, const 
                                          .targetName = profile->identity().shortName,
                                          .accessoryNames = std::move(accessoryNames),
                                          .ffb = gameFfb.get(),
+                                         .forceButton = profile->forceButton(),
+                                         .centringSpringPercent = profile->identity().centringSpring
+                                                                      ? config.centringSpringPercent
+                                                                      : 0.0F,
                                          .telemetry = telemetry.get(),
                                          .print = print,
                                          .window = host != nullptr,
@@ -1635,6 +1654,10 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     // A copy: the wheel's names from the Wheel setup tab replace the config's once the wheel is open.
     wheelbri::EmulatorConfig config = loaded.config;
     logEffectiveConfig(config);
+    if (const std::string levers = wheelbri::leversProblem(config); !levers.empty()) {
+        WE_LOG_CRITICAL(log(), "mapping: {}", levers);   // the app greys Start out for this; the CLI stops here
+        return 2;
+    }
 
     const auto backend = wheelbri::service::startWheelBackend();
     if (backend == nullptr) {
@@ -1801,6 +1824,24 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
             WE_LOG_INFO(log(), "the virtual {}: Windows' force feedback driver ({})", classic->instancePrefix,
                         logitechOrder ? "Logitech order, but G HUB's older-wheel driver is not installed"
                                       : "Native order");
+        }
+    }
+    // The RGT: with Thrustmaster's force feedback driver installed (WheelBri leaves that entry alone), its maker's
+    // identity, as the real wheel (makerVirtualWheel: the captured descriptor), which that driver drives; the driver
+    // logs what it sends ("rgt-tm" lines in wheelbri-driver-*.log). Else Windows' HID PID driver, which WheelBri reads.
+    // One line, at Start.
+    if (virtualWheel != nullptr && virtualWheel->makerDriver && steps != nullptr) {
+        if (wheelbri::service::makerFfbDriverInstalled(*virtualWheel)) {
+            if (const wheelbri::VirtualWheel* maker = wheelbri::makerVirtualWheel(config.targetProfile)) {
+                virtualWheel = maker;
+            }
+            WE_LOG_WARN(log(), "the virtual {}: Thrustmaster's force feedback driver is installed: the RGT as the real "
+                               "wheel (rgt-tm), which that driver drives; WheelBri logs what it sends but does not "
+                               "read it yet, so the game's force feedback may not reach your wheel",
+                        virtualWheel->instancePrefix);
+        } else {
+            WE_LOG_INFO(log(), "the virtual {}: Windows' force feedback driver (Thrustmaster's is not installed)",
+                        virtualWheel->instancePrefix);
         }
     }
     const std::string wheelName = virtualWheel != nullptr ? std::string(virtualWheel->instancePrefix) : "G920";
@@ -2088,6 +2129,10 @@ int runAppMode(Options options, const bool consoleLogging) {
         return runSession(run, fresh, logFileOk, &host);
     };
     settings.trueForceSdk = [] { return wheelbri::service::trueForceSdkPath(); };
+    settings.makerFfbDriver = [](const std::string_view profile) {
+        const wheelbri::VirtualWheel* const wheel = wheelbri::virtualWheel(profile);
+        return wheel != nullptr && wheelbri::service::makerFfbDriverInstalled(*wheel);
+    };
     settings.requestStop = [] { gStop = true; };
     settings.clearStop = [] { gStop = false; };
     return wheelbri::service::runApp(settings);

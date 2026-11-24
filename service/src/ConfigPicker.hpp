@@ -50,7 +50,7 @@ namespace wheelbri::service {
 class ConfigPicker {
 public:
     enum class Way { VirtualDevice, Shim };
-    enum class Target { G25, G27, G920, G923 };   // the Target buttons, left to right
+    enum class Target { G25, G27, G920, G923, RGT };   // the Target buttons, left to right
 
     struct Settings {
         std::filesystem::path builtInFolder;   // config/ next to the program
@@ -61,6 +61,9 @@ public:
         // Where Logitech's TrueForce SDK is on this PC ("" = not installed): service trueForceSdkPath(). Asked when
         // the files are looked at again (refresh) and every kSdkCheckSeconds while the G923's row shows. Unset: none.
         std::function<std::string()> trueForceSdk{};
+        // Whether the target's maker's force feedback driver is installed (service makerFfbDriverInstalled: the RGT,
+        // Thrustmaster's), by target profile ("tm_rgt"). Asked as trueForceSdk is. Unset: never.
+        std::function<bool(std::string_view)> makerFfbDriver{};
     };
     static constexpr int kSdkCheckSeconds = 5;
 
@@ -76,6 +79,9 @@ public:
     ConfigPicker(ui::UiWindow& window, Settings settings);
 
     [[nodiscard]] Way way() const { return way_; }
+    // Whether the Target's maker's force feedback driver is installed (Settings::makerFfbDriver), checked again every
+    // kSdkCheckSeconds: the Mapping tab says so for the RGT in Mode Virtual.
+    [[nodiscard]] bool makerFfbDriverFound();
     [[nodiscard]] Target target() const { return target_; }
     [[nodiscard]] bool virtualDevice() const { return way_ == Way::VirtualDevice; }
     // "G920 Mode Virtual", "G25 Mode Shim", "G25 Native Mode Shim": for the log and the status.
@@ -192,6 +198,9 @@ private:
     std::string trueForceSdk_;
     bool sdkChecked_ = false;
     std::chrono::steady_clock::time_point sdkCheckedAt_{};
+    bool makerDriver_ = false;                                // makerFfbDriverFound(), as last asked
+    Target makerDriverTarget_ = Target::G920;                 // for which target
+    std::chrono::steady_clock::time_point makerDriverCheckedAt_{};
     std::string selected_;
     bool builtIn_ = true;
     std::uint64_t changes_ = 0;

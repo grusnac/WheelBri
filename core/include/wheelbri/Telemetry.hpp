@@ -29,6 +29,9 @@ struct TelemetrySample {
     WheelState state;
     TargetReport report;               // as published: what the game reads (Pipeline::lastPublished)
     bool combinedPedals = false;       // pedals=combined (Pipeline::combinedPedals)
+    // The RGT's axis mode and pedal set (Pipeline::rgtMode, [tm_rgt]): rgt_mode and the lever keys, pedals= left out
+    // (combined pedals do not apply to it). nullopt for every other target: no lever keys.
+    std::optional<RgtMode> rgtMode;
     const FfbController* ffb = nullptr;
     double periodUs = 0.0;             // last loop period and the work inside it
     double workUs = 0.0;

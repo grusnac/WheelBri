@@ -117,7 +117,7 @@ std::vector<std::string> telemetryColumns() {
     }
     for (const char* name : {"raw_buttons", "raw_hat", "steer", "throttle", "brake", "clutch", "buttons", "hat",
                              "out_steer", "out_throttle", "out_brake", "out_clutch", "out_buttons", "out_hat",
-                             "out_combined", "pedals",
+                             "out_combined", "pedals", "rgt_mode", "left_lever", "right_lever", "out_right_lever",
                              "ffb_packets", "ffb_age_ms", "ffb_watchdog", "ffb_plays", "ffb_failures"}) {
         columns.emplace_back(name);
     }
@@ -209,6 +209,9 @@ bool TelemetryRecorder::openDay(const std::string& day, const bool continued, st
           "buttons bit n = button n, hex); steer..hat = after mapping; out_* = what the emulated wheel reports to the "
           "game (out_combined = the G25's and G27's Slider 0; pedals = combined: out_throttle carries throttle and "
           "brake, out_brake rests in the middle; separate: each on its own)",
+          "keys, the RGT only: rgt_mode = its axes and pedal set as reported (5axes_clutch, 5axes_levers, "
+          "3axes_levers, 2axes_levers); left_lever / right_lever = after mapping; out_right_lever = its Slider 1; "
+          "out_brake = Y, out_throttle = Rz, out_clutch = Slider 0 (the left lever with 5axes_levers); no pedals key",
           "keys: sN_* = force feedback slot N while it is used: sN_state w = the game wants it playing, p = playing "
           "on the wheel; sN_req = what the game asked for, sN_out = what reached the wheel (signed force for "
           "constant, strength for the others); period_us / work_us = the loop"}},
@@ -351,7 +354,8 @@ bool TelemetryRecorder::changed(const TelemetrySample& sample, const std::string
     }
     const WheelState& s = sample.state;
     if (moved(s.steering, lastState_.steering) || moved(s.throttle, lastState_.throttle) ||
-        moved(s.brake, lastState_.brake) || moved(s.clutch, lastState_.clutch)) {
+        moved(s.brake, lastState_.brake) || moved(s.clutch, lastState_.clutch) ||
+        moved(s.leftLever, lastState_.leftLever) || moved(s.rightLever, lastState_.rightLever)) {
         return true;
     }
     // Emulated wheel units: the same threshold on a 16-bit range, at least one count.
@@ -362,7 +366,7 @@ bool TelemetryRecorder::changed(const TelemetrySample& sample, const std::string
     const TargetReport& r = sample.report;
     return movedCounts(r.steering, lastReport_.steering) || movedCounts(r.throttle, lastReport_.throttle) ||
            movedCounts(r.brake, lastReport_.brake) || movedCounts(r.clutch, lastReport_.clutch) ||
-           movedCounts(r.combined, lastReport_.combined);
+           movedCounts(r.combined, lastReport_.combined) || movedCounts(r.rightLever, lastReport_.rightLever);
 }
 
 void TelemetryRecorder::writeSample(const TelemetrySample& sample) {
@@ -390,8 +394,15 @@ void TelemetryRecorder::writeSample(const TelemetrySample& sample) {
             static_cast<long>(sample.report.steering), static_cast<long>(sample.report.throttle),
             static_cast<long>(sample.report.brake), static_cast<long>(sample.report.clutch),
             static_cast<unsigned>(sample.report.buttons), sample.report.hat);
-    appendf(k, " out_combined=%ld pedals=%s", static_cast<long>(sample.report.combined),
-            sample.combinedPedals ? "combined" : "separate");
+    appendf(k, " out_combined=%ld", static_cast<long>(sample.report.combined));
+    if (const std::optional<RgtMode>& rgt = sample.rgtMode) {
+        appendf(k, " rgt_mode=%daxes_%s left_lever=%.4f right_lever=%.4f out_right_lever=%ld",
+                static_cast<int>(rgt->effectiveAxes()), rgt->pedalSet == RgtPedalSet::Clutch ? "clutch" : "levers",
+                static_cast<double>(sample.state.leftLever), static_cast<double>(sample.state.rightLever),
+                static_cast<long>(sample.report.rightLever));
+    } else {
+        appendf(k, " pedals=%s", sample.combinedPedals ? "combined" : "separate");
+    }
 
     const FfbController* const ffb = sample.ffb;
     std::string& slots = sampleSlots_;
@@ -418,6 +429,10 @@ void TelemetryRecorder::writeSample(const TelemetrySample& sample) {
     appendf(exact, ",%d,%x,%d,%x,%d,%d", sample.raw.hat,
             static_cast<unsigned>(sample.state.buttons), sample.state.hat, static_cast<unsigned>(sample.report.buttons),
             sample.report.hat, sample.combinedPedals ? 1 : 0);
+    if (sample.rgtMode) {
+        appendf(exact, ",rgt%d%d", static_cast<int>(sample.rgtMode->effectiveAxes()),
+                sample.rgtMode->pedalSet == RgtPedalSet::Clutch ? 1 : 0);
+    }
     if (ffb != nullptr) {
         appendf(exact, "|%d,%llu", ffb->watchdogTripped() ? 1 : 0,
                 static_cast<unsigned long long>(ffb->stats().playFailures));

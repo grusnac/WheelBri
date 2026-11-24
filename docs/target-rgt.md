@@ -1,0 +1,119 @@
+# Target RGT
+
+The **Thrustmaster RGT Force Feedback Pro Clutch Edition** (about 2008): 270 degrees, three pedals, two analog levers
+behind the rim, a sequential stick. For games of its era that have a preset for it, such as Race Driver: GRID.
+All Targets: [targets.md](targets.md).
+
+| | |
+|---|---|
+| Ids | 044F:B653, "RGT Force Feedback Pro" (the name Thrustmaster's driver gives it, and the one games look for) |
+| Buttons | 12 (a real one reports 10), D-pad as a hat; the Force button |
+| Rotation | 270 degrees, fixed, as the real wheel |
+| Modes | Virtual (Windows 11, Linux) and Shim; Linux not yet tested |
+| Extras | AXES (2 / 3 / 5) and PEDAL SET (Levers / Clutch), as the wheel's own switches; two levers; centring spring |
+| Force feedback | Windows' HID PID driver, no Thrustmaster software needed |
+| Tested | Race Driver: GRID, Mode Virtual, Windows 11 ([games.md](games.md#race-driver-grid)) |
+
+## When to pick it
+
+- The game has a preset for the "RGT Force Feedback Pro" and none for a Logitech wheel WheelBri offers.
+- Race Driver: GRID has one (preset 5, from the game's files), but its [G25](target-g25.md) preset is the tested one.
+
+## Set up
+
+1. Mapping tab: **Target RGT**, **Mode** Virtual (or Shim for a DirectInput game).
+2. **AXES** and **PEDAL SET** (below): what the real wheel's mode switch and pedal switch did, here with no
+   Thrustmaster software. The defaults are 5 axes and Clutch. For GRID see [Known](#known).
+3. With **Levers**: map **Left lever** and **Right lever** to controls on your rig (a handbrake, a second pedal).
+   The Rig never maps them. Start refuses until both are mapped.
+4. The Rig maps A, B, X, Y to Button 6, 5, 4, 3 (GRID's menu Select, Back, Boost, Look back) and the paddles to Down
+   and Up. Map the other buttons, the stick and the Force button yourself.
+5. **Centring spring** (0-100%, off by default): a spring to the centre on top of the game's forces, as
+   Thrustmaster's Control Panel had. Applies at the next Start. While running, the **Force** button switches it off
+   and on, as the real wheel's Force button switched its recentring; it is on again at each Start.
+
+## Axes
+
+Wheel X, then four pedal axes. What they carry follows AXES and PEDAL SET, as the table in Thrustmaster's manual:
+
+| AXES | PEDAL SET | Y | Rz | Slider 0 | Slider 1 |
+|---|---|---|---|---|---|
+| 5 | Clutch (default) | brake | throttle | clutch | at rest |
+| 5 | Levers | brake | throttle | left lever | right lever |
+| 3 | Levers | brake or left lever | throttle or right lever | at rest | at rest |
+| 2 | Levers | throttle and brake on one axis (with both levers) | at rest | at rest | at rest |
+
+- **Clutch always means 5 axes**, as on the real wheel: 2 and 3 are greyed while Clutch is picked.
+- The rows the pedal set does not report are greyed on the Mapping tab: the clutch with Levers, the levers with
+  Clutch.
+- Combined pedals do not apply to the RGT: AXES decides what is combined.
+- The pedals and levers rest at the top of the range, as a real RGT's.
+- The same axes in both Modes.
+- Not checked on a real RGT: which way 2 axes moves Y (the G25's combined pedals' way is used), and that 3 axes reports
+  whichever of a pedal and its lever is pressed further.
+
+## Buttons
+
+Numbers as the game and the app count them (from 1). `target_N` in the INI is the number minus 1. There is one order,
+the one Thrustmaster's driver gives.
+
+| # | Button | From the Rig |
+|---|---|---|
+| 1 | Down paddle | Left paddle |
+| 2 | Up paddle | Right paddle |
+| 3 | Button 3 | Y |
+| 4 | Button 4 | X |
+| 5 | Button 5 | B |
+| 6 | Button 6 | A |
+| 7, 8 | Button 7, Button 8 | |
+| 9 | Stick + (up a gear) | |
+| 10 | Stick - (down a gear) | |
+| 11, 12 | Button 11, Button 12 (the stick's base) | |
+| | Force | |
+| hat | D-pad | D-pad |
+
+Which physical button on the rim is Button 3 to 8 is not known yet: Thrustmaster's documents do not say.
+
+A real RGT reports 10 buttons (its report descriptor). Button 11 and 12 are the two on the stick's base, which it
+does not report: WheelBri's RGT adds them, but not with Thrustmaster's driver installed (that one is the real wheel's
+10). The **Force** button is never reported to the game: each press switches the centring spring off or on (nothing
+to switch while it is 0%). Its Mapping row has no number.
+
+## Force feedback
+
+- **Windows**: Windows' HID PID driver plays the game's effects on the virtual RGT; WheelBri plays them on your rig
+  through its safety limits. No Thrustmaster software is needed.
+- **With Thrustmaster's driver installed**: Start presents the RGT as the real wheel (its real descriptor, so
+  Thrustmaster's driver recognises it), and its force feedback driver drives it. That driver works the effects out
+  itself and sends one force; WheelBri plays it on your rig through its safety limits (`wheelbri-driver-*.log`, "maker
+  ffb" lines). The Mapping tab says the driver is there (Target RGT, Mode Virtual), and Start does in the log. Needs the
+  drivers from this version (`drivers.sh -Install`, or the installer). Thrustmaster's 2018.FFD.2 registers that driver for 64-bit programs
+  only (Windows 11, 2026-11-23): a 32-bit game such as Race Driver: GRID cannot load it, so it gets no force feedback at
+  all on the RGT while the package is installed; uninstall it for such games, and Windows' driver plays every effect.
+  WheelBri never changes or removes Thrustmaster's registry entries: its own carry a mark, and only those go at Stop, in
+  the uninstaller and in `clean-pc.ps1`.
+- Race Driver: GRID gives the RGT a negative friction (baseFriction -25, for a real RGT's belt and gears), which swings
+  a low-friction wheel lock to lock: the Games tab's Game file for GRID puts the G25's 0 there ([games.md](games.md)).
+
+## Shadow view
+
+The RGT from the front: DOWN and UP on the paddles, the D-pad, the rim's buttons by number, the sequential stick
+with + and -, the three pedals. The rim's buttons are placed as a guess: four on the right (Button 3 to 6), two on
+the bottom spoke (7, 8). Under them the Force button, "F", with "Force: on" or "Force: off" beside it (the centring
+spring); Button 11 and 12 on the stick's base.
+
+The levers' tabs behind the side spokes fill from the bottom as you move them, with what drives each beside it. With
+PEDAL SET Clutch they are faint and say "off: Clutch": the game does not get them.
+
+![The Shadow view with Target RGT, running](images/live-shadow-rgt.png)
+
+## Known
+
+- Race Driver: GRID, Mode Virtual (Windows 11, Moza R3): a lap driven; with GRID's friction set as the G25's (Games
+  tab) its force feedback felt as with the G25. Not yet tried: Mode Shim, the levers, other games.
+- GRID's RGT preset (from the game's files, not checked in the game) reads the throttle on Rz or Slider 1 and the
+  brake on Y or Slider 0, the 5 axes Levers layout, and has no clutch action. So with **Levers** the levers are a
+  second throttle and brake; with **Clutch** the clutch pedal, on Slider 0, would brake.
+- Linux: built, not yet tested. `wheelbri.sh --target tm_rgt`; Proton reads it raw with
+  `PROTON_ENABLE_HIDRAW=0x044F/0xB653` (`wheelbri.sh` sets it). Its right lever is a Dial there, as on the real RGT,
+  so Proton does not read it as Slider 0. Force feedback through the kernel's HID PID driver, as the other Targets.

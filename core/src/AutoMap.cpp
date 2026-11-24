@@ -17,6 +17,11 @@ void forEachAutoInput(AutoMapping& out, const IDeviceProfile& profile, const Tak
         if (target < 0 || static_cast<std::size_t>(target) >= out.buttons.size()) continue;
         take(kCoreButtonKinds[c], false, out.buttons[static_cast<std::size_t>(target)]);
     }
+    for (std::size_t g = 0; g < kGearCount; ++g) {
+        const int target = profile.gearButton(g);
+        if (target < 0 || static_cast<std::size_t>(target) >= out.buttons.size()) continue;
+        take(kGearKinds[g], false, out.buttons[static_cast<std::size_t>(target)]);
+    }
 }
 
 }  // namespace
@@ -28,7 +33,7 @@ bool isAutoKind(const std::string_view kind) {
         }
         return false;
     };
-    return !kind.empty() && (in(kAutoAxisKinds) || in(kAutoHatKinds) || in(kCoreButtonKinds));
+    return !kind.empty() && (in(kAutoAxisKinds) || in(kAutoHatKinds) || in(kCoreButtonKinds) || in(kGearKinds));
 }
 
 AutoMapping autoMapping(const Rig& rig, const IDeviceProfile& profile, const DeviceId& wheel) {
@@ -107,7 +112,7 @@ std::vector<std::string> followRig(MappingModel& model, const Rig& rig, const ID
     if (!model.fromRig) return {};
     AutoMapping found = autoMapping(rig, profile, mappingWheel(model.sourceDevice, rig));
     const AutoInputs& autos = model.autoInputs;
-    for (std::size_t i = 0; i < model.axes.size(); ++i) {
+    for (std::size_t i = 0; i < autos.axes.size(); ++i) {   // the levers never follow the Rig
         if (autos.axes[i]) model.axes[i] = found.axes[i];
     }
     for (std::size_t i = 0; i < model.hat.size(); ++i) {

@@ -2,13 +2,14 @@
 
 A one-page list. How to use each: [user-guide.md](user-guide.md).
 
-## Your rig as a Logitech wheel
+## Your rig as a wheel games know
 
-- **Four Targets**: G920 (default), G923, G25, G27, each on its own page ([targets.md](targets.md)).
+- **Five Targets**: Logitech G920 (default), G923, G25, G27 and Thrustmaster RGT, each on its own page
+  ([targets.md](targets.md)). The RGT is not yet tested in a game.
 - **Any rig**: a wheel base plus up to 3 accessories (pedals, shifter, handbrake, button box), up to 128 buttons each
   (Linux: 80, the kernel's limit). Built and tested with a Moza R3; other wheels should work but are untried.
 - **Two Modes**:
-  - **Virtual**: a virtual Logitech wheel every game sees, with your rig hidden from games while it runs (Windows 11:
+  - **Virtual**: a virtual wheel (the Target) every game sees, with your rig hidden from games while it runs (Windows 11:
     WheelBri's own drivers; Linux: `/dev/uhid`). Works with modern games.
   - **Shim**: a `dinput8.dll` next to one game's `.exe`, for older DirectInput games; 32 and 64-bit; chains another
     mod's `dinput8.dll` (ReShade, Widescreen Fix) instead of overwriting it; works next to the Ultimate ASI Loader.
@@ -23,6 +24,9 @@ A one-page list. How to use each: [user-guide.md](user-guide.md).
   (a handbrake lever past a set point, a second button).
 - **G25 and G27**: Logitech or Native button order, each with its own mapping; centring spring 0-100%.
 - **G923**: TrueForce on or off.
+- **RGT**: AXES (2, 3 or 5) and PEDAL SET (Levers or Clutch), as the real wheel's switches, with no Thrustmaster
+  software; its two levers behind the rim; centring spring 0-100%, which its Force button switches off and on; Button
+  11 and 12 on the stick's base.
 - **Live editing**: every change is saved and used at once, even while a game runs. **Undo** one change at a time;
   **Default** back to WheelBri's mapping.
 - **Side by side**: the editor and the Live tab in one window.
@@ -41,6 +45,8 @@ A one-page list. How to use each: [user-guide.md](user-guide.md).
   game only, applied while it runs.
 - Built-in profiles for NFS 2015, Payback and Unbound (Target G920), NFS Underground, Underground 2 and Most Wanted
   (combined pedals, every Target), and NFS Unbound's hidden wheel settings written to its file.
+- Race Driver: GRID's own files: its replay controls on the wheel, and its friction for the RGT (its negative one
+  swings a low-friction wheel), each put in and taken out from the Games tab.
 - Combined pedals (Logitech's "Report Combined Pedals") for every game too, on the Mapping tab.
 - Anti-dead zone for games with a steering dead zone of their own: the game gets a set amount of steering as soon as
   the wheel leaves the centre; for every game on the Mapping tab, or per game.
@@ -52,7 +58,7 @@ A one-page list. How to use each: [user-guide.md](user-guide.md).
 - Everything the game sends, passed on through safety limits: no sudden jumps, a push held 2 s unchanged fades, forces
   stop when the game goes quiet, a cap on all effects together, a watchdog per sender.
 - Logitech's own force feedback drivers on Windows when G HUB has installed them (G920, G923; G25 and G27 in Logitech
-  order), else Windows' HID PID driver.
+  order), else Windows' HID PID driver. The RGT: Windows' HID PID driver, no Thrustmaster software needed.
 - **TrueForce** for the G923 (Windows, Mode Virtual): the torque stream, damping and road texture.
 - Strength is set in your wheel's own software, once for all games.
 

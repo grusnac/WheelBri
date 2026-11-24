@@ -78,9 +78,12 @@ struct FirefoxPolicy {
 
 // DirectInput's OEM entries WheelBri writes for its virtual wheels (service/src/VirtualWheelDevice.cpp
 // writeDirectInputEntries), by device ids: the name it writes as OEMName (core/src/HidWheelDevice.cpp kVirtualWheels).
+// `marked`: WheelBri marks its values with a "WheelBri" value (VirtualWheel::makerDriver: the maker's own installer
+// writes the same OEMName there), so only a marked key's are WheelBri's; for the others, an OEMName that is WheelBri's.
 struct OemEntry {
     const wchar_t* ids;
     const wchar_t* name;
+    bool marked = false;
 };
 [[nodiscard]] const std::vector<OemEntry>& oemEntries();
 

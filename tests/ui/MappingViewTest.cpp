@@ -278,7 +278,7 @@ TEST_F(LiveView, ShadowViewIsTheG25sFirstView) {
     ASSERT_TRUE(clickOn(*view, "Shadow"));
     EXPECT_TRUE(view->showingShadow());
 
-    for (const char* target : {"g25", "g27", "g920", "g923"}) {
+    for (const char* target : {"g25", "g27", "g920", "g923", "tm_rgt"}) {
         EXPECT_TRUE(ShadowView::hasPicture(*makeProfile(target))) << target;
     }
 }
@@ -312,6 +312,71 @@ TEST_F(LiveView, ShadowViewHasEveryG25ButtonByTheGamesNumber) {
     }
     EXPECT_TRUE(window_.has("Gear 1, Gear 2", true)) << window_.dump();   // named in "Nothing drives"
     EXPECT_TRUE(window_.has("Gas pedal") && window_.has("Brake pedal") && window_.has("Clutch pedal"));
+}
+
+// The RGT's picture: Down and Up printed on the paddles' tabs, + and - by the stick, the game's number on Button 3-8,
+// 11 and 12 (the stick's base), "F" on the Force button; the rig's labels beside them; the levers (nothing drives
+// them) faint; no "?" left.
+TEST_F(LiveView, ShadowViewHasEveryRgtButton) {
+    profile_ = makeProfile("tm_rgt");
+    auto view = makeView(8, 40, mozaRimMapping("tm_rgt", {{0, 12}, {1, 13}, {2, 3}, {3, 2}, {4, 1}, {5, 0}, {6, 21},
+                                                       {7, 22}, {8, 34}, {9, 35}}));
+    view->showShadow(true);
+    draw(*view);
+    EXPECT_TRUE(view->showingShadow());
+    const auto onPicture = [&](const std::string& value) {
+        int n = 0;
+        for (const auto& t : window_.last.texts) n += t.value == value && t.y > 60 ? 1 : 0;
+        return n;
+    };
+    for (const char* print : {"DOWN", "UP", "+", "-"}) EXPECT_EQ(onPicture(print), 1) << print << "\n" << window_.dump();
+    for (const std::size_t b : {2, 3, 4, 5, 6, 7, 10, 11}) {
+        const std::string number = std::to_string(gameButtonNumber(*profile_, ButtonOrder::Driver, b));
+        EXPECT_GE(onPicture(number), 1) << "button " << b << " (" << number << ")\n" << window_.dump();
+    }
+    EXPECT_EQ(onPicture("F"), 1) << window_.dump();
+    EXPECT_EQ(onPicture("Force"), 1) << window_.dump();   // its own name (nothing drives it); no "Force: on" stopped
+    EXPECT_EQ(onPicture("Force: on") + onPicture("Force: off"), 0);
+    for (const char* label : {"L paddle", "R paddle", "Y", "X", "B", "A", "Cam", "Radio", "R", "Start"}) {
+        EXPECT_TRUE(hasIn(window_, label, style::kText)) << label << "\n" << window_.dump();
+    }
+    EXPECT_TRUE(hasIn(window_, "Left lever", style::kFaint));
+    EXPECT_TRUE(hasIn(window_, "Right lever", style::kFaint));
+    EXPECT_EQ(onPicture("?"), 0);
+}
+
+// The RGT's levers: with the pedal set at Levers each tab lights from the bottom by its travel and is labelled by what
+// drives it (an unmapped one by its own name, faint); with Clutch the RGT does not report them: both faint, "off: Clutch".
+TEST_F(LiveView, ShadowViewLightsRgtLeversByThePedalSet) {
+    profile_ = makeProfile("tm_rgt");
+    MapperConfig mapper = mozaRimMapping("tm_rgt", {});
+    mapper.clutch.sourceAxis = kUnmapped;   // its label ("Clutch pedal") is the left lever's alone
+    mapper.leftLever.sourceAxis = 6;
+    auto view = makeView(8, 40, mapper);
+    view->showShadow(true);
+    WheelState state;
+    state.leftLever = 0.5F;
+    const auto anyGreen = [&] {
+        bool green = false;
+        for (const auto& r : window_.last.rects) green = green || (r.filled && r.y > 40 && sameColour(r.colour, style::kActive));
+        return green;
+    };
+
+    view->setRgtMode(RgtMode{RgtAxes::Five, RgtPedalSet::Levers});
+    draw(*view, {}, state);
+    EXPECT_TRUE(hasIn(window_, "Clutch pedal", style::kActive)) << window_.dump();
+    EXPECT_TRUE(hasIn(window_, "Right lever", style::kFaint));
+    EXPECT_TRUE(anyGreen());   // nothing else pressed: the left lever's fill
+    EXPECT_TRUE(window_.has("Clutch pedal -> Left lever 50%")) << window_.dump();   // in Pressed now
+
+    view->setRgtMode(RgtMode{RgtAxes::Five, RgtPedalSet::Clutch});
+    draw(*view, {}, state);
+    int off = 0;
+    for (const auto& t : window_.last.texts) off += t.value == "off: Clutch" && sameColour(t.colour, style::kFaint) ? 1 : 0;
+    EXPECT_EQ(off, 2) << window_.dump();
+    EXPECT_FALSE(hasIn(window_, "Clutch pedal", style::kActive));
+    EXPECT_FALSE(anyGreen());
+    EXPECT_FALSE(window_.has("Left lever 50%"));   // not in Pressed now either
 }
 
 // What the game sees pressed lights up: the button (its number dark on green), the D-pad's arm, the pedals' fill by
@@ -441,7 +506,8 @@ TEST_F(LiveView, ShadowViewShowsTheG920sOwnPrint) {
         EXPECT_TRUE(hasIn(window_, label, style::kText)) << label << "\n" << window_.dump();
     }
     EXPECT_TRUE(hasIn(window_, "Xbox", style::kText)) << window_.dump();   // rig 37 drives it, unlabelled
-    EXPECT_TRUE(window_.has("On it: what the G920 has printed there.", true)) << window_.dump();
+    EXPECT_FALSE(window_.has("Beside a control", true)) << window_.dump();   // no legend under the picture
+    EXPECT_FALSE(window_.has("Faint: nothing drives", true));
 
     // Presses light: A and LSB dark on green, the D-pad's "D-pad", gear 3 on the knob; the list keeps the numbers.
     TargetReport report;

@@ -27,6 +27,7 @@ inline constexpr float kMaxRotationDeg = 2520.0F;
 [[nodiscard]] std::string formatPercent(float fraction);
 
 // Why a value cannot be used, or empty. Fractions, not percentages.
-[[nodiscard]] std::string rotationProblem(float degrees);
+// A rotation: kMinRotationDeg to maxDeg (the Target's own most, maxRotationDeg in GameRotation.hpp).
+[[nodiscard]] std::string rotationProblem(float degrees, float maxDeg = kMaxRotationDeg);
 
 }  // namespace wheelbri::tuning

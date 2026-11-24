@@ -140,10 +140,10 @@ bool isLink(const std::filesystem::path& path) {
     return std::filesystem::is_symlink(std::filesystem::symlink_status(path, ec));
 }
 
-// The settings file at `root` / `relative`, checked as writeGameSettingsFile describes: nullopt and `why` when the
-// path is not one under `root`, or a folder on the way is a link.
-std::optional<std::filesystem::path> settingsFilePath(const std::filesystem::path& root,
-                                                      const std::string_view relative, std::string& why) {
+}  // namespace
+
+std::optional<std::filesystem::path> gameFileUnder(const std::filesystem::path& root, const std::string_view relative,
+                                                   std::string& why) {
     const std::filesystem::path rel = pathFromUtf8(std::string(relative));
     // / separated and relative, on every system: no drive ("C:x" is relative on Windows yet leaves `root`), no
     // backslash (a Windows separator, or a share), no root ("/x" has no drive on Windows but root / "/x" still leaves
@@ -169,10 +169,8 @@ std::optional<std::filesystem::path> settingsFilePath(const std::filesystem::pat
     return root / rel;
 }
 
-// The file's bytes, when it is a plain file of a settings file's size: nullopt and `why` otherwise (`missing` true
-// when it is not there at all, `retry` true when reading it failed and may work later).
-std::optional<std::string> readSettingsFile(const std::filesystem::path& file, std::string& why, bool& missing,
-                                            bool& retry) {
+std::optional<std::string> readGameFileBytes(const std::filesystem::path& file, std::string& why, bool& missing,
+                                             bool& retry) {
     missing = false;
     retry = false;
     std::error_code ec;
@@ -204,13 +202,33 @@ std::optional<std::string> readSettingsFile(const std::filesystem::path& file, s
     return bytes;
 }
 
-}  // namespace
+std::optional<std::string> writeGameFileKeepingOriginal(const std::filesystem::path& file,
+                                                        const std::filesystem::path& backup, const std::string_view before,
+                                                        const std::string_view after, bool& retry) {
+    retry = false;
+    // The backup: made once, from the bytes just read, never through a link and never over an existing one.
+    std::error_code ec;
+    const std::filesystem::file_status backupStatus = std::filesystem::symlink_status(backup, ec);
+    if (backupStatus.type() == std::filesystem::file_type::not_found) {
+        if (!writeFileReplacing(backup, before)) {
+            retry = true;
+            return "cannot keep a copy of the file as it was";
+        }
+    } else if (!std::filesystem::is_regular_file(backupStatus)) {
+        return pathToUtf8(backup) + " is there but is not a plain file";
+    }
+    if (!writeFileReplacing(file, after)) {
+        retry = true;
+        return "cannot write it (the game may have it open)";
+    }
+    return std::nullopt;
+}
 
 GameSettingsFileResult writeGameSettingsFile(const std::filesystem::path& root, const std::string_view relative,
                                              const std::span<const GameSettingText> values) {
     using Outcome = GameSettingsFileResult::Outcome;
     GameSettingsFileResult result;
-    const std::optional<std::filesystem::path> file = settingsFilePath(root, relative, result.why);
+    const std::optional<std::filesystem::path> file = gameFileUnder(root, relative, result.why);
     if (!file) {
         result.outcome = Outcome::Refused;
         return result;
@@ -220,7 +238,7 @@ GameSettingsFileResult writeGameSettingsFile(const std::filesystem::path& root, 
     result.backup += ".before-wheelbri";
     bool missing = false;
     bool retry = false;
-    const std::optional<std::string> bytes = readSettingsFile(result.file, result.why, missing, retry);
+    const std::optional<std::string> bytes = readGameFileBytes(result.file, result.why, missing, retry);
     if (!bytes) {
         result.outcome = missing ? Outcome::NoFile : retry ? Outcome::Failed : Outcome::Refused;
         return result;
@@ -235,23 +253,10 @@ GameSettingsFileResult writeGameSettingsFile(const std::filesystem::path& root, 
         result.outcome = Outcome::AsSet;
         return result;
     }
-    // The backup: made once, from the bytes just read, never through a link and never over an existing one.
-    std::error_code ec;
-    const std::filesystem::file_status backupStatus = std::filesystem::symlink_status(result.backup, ec);
-    if (backupStatus.type() == std::filesystem::file_type::not_found) {
-        if (!writeFileReplacing(result.backup, *bytes)) {
-            result.outcome = Outcome::Failed;
-            result.why = "cannot keep a copy of the file as it was";
-            return result;
-        }
-    } else if (!std::filesystem::is_regular_file(backupStatus)) {
-        result.outcome = Outcome::Refused;
-        result.why = pathToUtf8(result.backup) + " is there but is not a plain file";
-        return result;
-    }
-    if (!writeFileReplacing(result.file, edit.bytes)) {
-        result.outcome = Outcome::Failed;
-        result.why = "cannot write it (the game may have it open)";
+    if (const std::optional<std::string> why =
+            writeGameFileKeepingOriginal(result.file, result.backup, *bytes, edit.bytes, retry)) {
+        result.outcome = retry ? Outcome::Failed : Outcome::Refused;
+        result.why = *why;
         return result;
     }
     result.outcome = Outcome::Written;
@@ -277,7 +282,7 @@ GameSettingsFileState readGameSettingsState(const std::filesystem::path& root, c
         state.why = "the game's own settings are only set on Windows for now";
         return state;
     }
-    const std::optional<std::filesystem::path> file = settingsFilePath(root, relative, state.why);
+    const std::optional<std::filesystem::path> file = gameFileUnder(root, relative, state.why);
     if (!file) {
         state.status = Status::Unreadable;
         return state;
@@ -285,7 +290,7 @@ GameSettingsFileState readGameSettingsState(const std::filesystem::path& root, c
     state.file = *file;
     bool missing = false;
     bool retry = false;
-    const std::optional<std::string> bytes = readSettingsFile(state.file, state.why, missing, retry);
+    const std::optional<std::string> bytes = readGameFileBytes(state.file, state.why, missing, retry);
     if (!bytes) {
         state.status = missing ? Status::NoFile : Status::Unreadable;
         return state;

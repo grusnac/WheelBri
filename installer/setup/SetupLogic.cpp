@@ -467,6 +467,7 @@ const std::vector<OemEntry>& oemEntries() {
         {L"VID_046D&PID_C29B", L"Logitech G27 Racing Wheel USB"},
         {L"VID_046D&PID_C262", L"Logitech G920 Driving Force Racing Wheel USB"},
         {L"VID_046D&PID_C26E", L"Logitech G923 Racing Wheel for Xbox One and PC"},
+        {L"VID_044F&PID_B653", L"RGT Force Feedback Pro", true},   // Thrustmaster's installer writes the same name
     };
     return entries;
 }

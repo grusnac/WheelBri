@@ -35,7 +35,8 @@ std::optional<int> parseIndex(const std::string_view text) {
     return value;
 }
 
-constexpr std::array<const char*, 4> kAxisSections = {"steering", "throttle", "brake", "clutch"};
+constexpr std::array<const char*, MappingModel::kAxisCount> kAxisSections = {"steering", "throttle",   "brake",
+                                                                             "clutch",   "left_lever", "right_lever"};
 
 bool same(const float a, const float b) { return std::fabs(a - b) < 1e-5F; }
 
@@ -196,8 +197,12 @@ MappingModel mappingModel(const EmulatorConfig& config) {
     model.axes = {sourceOf(mapper, mapper.steering.sourceDevice, mapper.steering.sourceAxis),
                   sourceOf(mapper, mapper.throttle.sourceDevice, mapper.throttle.sourceAxis),
                   sourceOf(mapper, mapper.brake.sourceDevice, mapper.brake.sourceAxis),
-                  sourceOf(mapper, mapper.clutch.sourceDevice, mapper.clutch.sourceAxis)};
-    model.invert = {mapper.steering.invert, mapper.throttle.invert, mapper.brake.invert, mapper.clutch.invert};
+                  sourceOf(mapper, mapper.clutch.sourceDevice, mapper.clutch.sourceAxis),
+                  sourceOf(mapper, mapper.leftLever.sourceDevice, mapper.leftLever.sourceAxis),
+                  sourceOf(mapper, mapper.rightLever.sourceDevice, mapper.rightLever.sourceAxis)};
+    model.invert = {mapper.steering.invert, mapper.throttle.invert,  mapper.brake.invert,
+                    mapper.clutch.invert,   mapper.leftLever.invert, mapper.rightLever.invert};
+    model.rgt = config.rgt;
     for (std::size_t target = 0; target < model.buttons.size(); ++target) {
         model.buttons[target] = sourceOf(mapper, mapper.buttonDevice[target], mapper.buttonMap[target]);
         for (const ButtonSource& alt : mapper.buttonSecondary[target]) {
@@ -221,7 +226,8 @@ MappingModel mappingModel(const EmulatorConfig& config) {
 
 namespace {
 
-constexpr std::array<const char*, 4> kAxisUseNames = {"steering", "throttle", "brake", "clutch"};
+constexpr std::array<const char*, MappingModel::kAxisCount> kAxisUseNames = {"steering", "throttle",   "brake",
+                                                                             "clutch",   "left lever", "right lever"};
 constexpr std::array<const char*, 4> kHatUseNames = {"D-pad Up", "D-pad Right", "D-pad Down", "D-pad Left"};
 
 // A source as the mapping compares them: on the wheel's own id it is the wheel's.
@@ -420,6 +426,16 @@ MappingWriteResult writeMapping(const std::string_view base, const MappingModel&
         const std::optional<ButtonOrder> current = line ? parseButtonOrder(*line) : EmulatorConfig{}.buttonOrder;
         if (current != model.buttonOrder) ini.set("buttons", "order", std::string(toString(model.buttonOrder)));
     }
+    // [tm_rgt] axes and pedal_set: the same way (a target other than the RGT keeps the defaults: no lines).
+    {
+        const std::optional<std::string> axesLine = before.get("tm_rgt", "axes");
+        const std::optional<std::string> setLine = before.get("tm_rgt", "pedal_set");
+        const RgtMode defaults;
+        const std::string axes = std::to_string(static_cast<int>(model.rgt.axes));
+        const std::string set = model.rgt.pedalSet == RgtPedalSet::Clutch ? "clutch" : "levers";
+        if (axesLine ? *axesLine != axes : model.rgt.axes != defaults.axes) ini.set("tm_rgt", "axes", axes);
+        if (setLine ? *setLine != set : model.rgt.pedalSet != defaults.pedalSet) ini.set("tm_rgt", "pedal_set", set);
+    }
     // [pedals] combined: the same way.
     {
         const std::optional<std::string> line = before.get("pedals", "combined");
@@ -491,8 +507,11 @@ MappingWriteResult writeMapping(const std::string_view base, const MappingModel&
     }
     const AutoInputs& autos = model.autoInputs;
     for (std::size_t i = 0; i < kAxisSections.size(); ++i) {
-        if (model.fromRig && autos.axes[i]) {
+        const bool lever = i >= autos.axes.size();
+        if (!lever && model.fromRig && autos.axes[i]) {
             ini.remove(kAxisSections[i], "axis");   // follows the Rig
+        } else if (lever && !model.axes[i].mapped() && !before.get(kAxisSections[i], "axis")) {
+            // A lever nothing drives, in a file without its line (every target but the RGT): no line.
         } else {
             ini.set(kAxisSections[i], "axis", formatSource(normal(model.axes[i])));
         }
