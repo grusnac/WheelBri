@@ -27,9 +27,9 @@ std::string hex(const std::span<const std::uint8_t> bytes) {
 MakerFfb::MakerFfb(Sender send, Logger log) : send_(std::move(send)), log_(std::move(log)) {}
 
 float MakerFfb::level(const std::uint16_t force) {
-    // 32767 steps towards the right (0x7ffe..0x0000), 32768 towards the left (0x8000..0xffff).
-    const int towardsRight = static_cast<int>(kNoForce) - static_cast<int>(force);
-    return std::clamp(static_cast<float>(towardsRight) / (towardsRight > 0 ? 32767.0F : 32768.0F), -1.0F, 1.0F);
+    // 32768 steps up (0x8000..0xffff), 32767 down (0x7ffe..0x0000).
+    const int above = static_cast<int>(force) - static_cast<int>(kNoForce);
+    return std::clamp(static_cast<float>(above) / (above > 0 ? 32768.0F : 32767.0F), -1.0F, 1.0F);
 }
 
 void MakerFfb::note(const std::string& what) {

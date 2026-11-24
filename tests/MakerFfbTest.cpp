@@ -38,11 +38,12 @@ struct Ffb {
     }
 };
 
-// GRID, 2026-11-24: above 0x7fff came with the wheel right of centre, so it pushes left.
-TEST(MakerFfb, ForcesHighByteFirstAboveNoForcePushLeft) {
+// Above 0x7fff with the wheel right of centre (GRID, 2026-11-24): a centring force, the sign of the position as through
+// Windows' HID PID driver (played the other way, it pushed the wheel away from the centre).
+TEST(MakerFfb, ForcesHighByteFirstAboveNoForceArePositive) {
     EXPECT_FLOAT_EQ(MakerFfb::level(0x7FFF), 0.0F);
-    EXPECT_FLOAT_EQ(MakerFfb::level(0xFFFF), -1.0F);
-    EXPECT_FLOAT_EQ(MakerFfb::level(0x0000), 1.0F);
+    EXPECT_FLOAT_EQ(MakerFfb::level(0xFFFF), 1.0F);
+    EXPECT_FLOAT_EQ(MakerFfb::level(0x0000), -1.0F);
     Ffb f;
     f.force(0xBFFF, 0);
     const FfbPacket* p = f.last(FfbPacket::Kind::SlotState);
@@ -50,7 +51,7 @@ TEST(MakerFfb, ForcesHighByteFirstAboveNoForcePushLeft) {
     EXPECT_TRUE(p->playing);
     EXPECT_EQ(p->slot, 0);
     EXPECT_EQ(p->effect.type, FfbEffectType::Constant);
-    EXPECT_NEAR(p->effect.constantLevel, -0.5F, 0.001F);
+    EXPECT_NEAR(p->effect.constantLevel, 0.5F, 0.001F);
 }
 
 TEST(MakerFfb, SendsOnChangeRefreshesAndKeepsAlive) {

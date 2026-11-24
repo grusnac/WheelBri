@@ -18,8 +18,10 @@ namespace wheelbri {
 // RGT's maker identity (VirtualWheel::makerIdentity), turned into one constant force the service plays on the rig.
 // The driver works the effects out itself and streams only the result, every 15-30 ms (GRID, 2026-11-24):
 //   report 0x40, 5 bytes: [1..2] the force, 16 bits, high byte first; 0x7fff none; [3..4] always 00 00.
-// Direction from that run (wheelbri-driver-2026-11-24-01.log against its telemetry): above 0x7fff came with the wheel
-// right of centre in 2176 of 2612 samples, so above 0x7fff pushes left (-1 here), 0xffff full left, 0x0000 full right.
+// Direction: above 0x7fff comes with the wheel right of centre (2176 of 2612 samples, wheelbri-driver-2026-11-24-01.log
+// against its telemetry), and a game's centring force through Windows' HID PID driver has the sign of the wheel's
+// position (GRID and others, G25 and RGT, 2026-11-22..23). So above 0x7fff is +, 0xffff +1, 0x0000 -1. (Played the
+// other way, 2026-11-24, it pushed a Moza R3 away from the centre, lock to lock.)
 // Other reports are logged once. Keep-alives and quiet rules as ClassicFfb's. Thread-safe.
 class MakerFfb {
 public:
@@ -41,7 +43,7 @@ public:
     void stopAll(std::int64_t nowMs);
     [[nodiscard]] std::uint64_t packetsSent() const;
 
-    // A force as a signed level: 0x7fff -> 0, 0xffff -> -1 (left), 0x0000 -> +1 (right).
+    // A force as a signed level: 0x7fff -> 0, 0xffff -> +1, 0x0000 -> -1.
     [[nodiscard]] static float level(std::uint16_t force);
 
 private:
