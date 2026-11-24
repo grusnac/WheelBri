@@ -76,11 +76,14 @@ Which physical button on the rim is Button 3 to 8 is not known yet: Thrustmaster
 - **Windows**: Windows' HID PID driver plays the game's effects on the virtual RGT; WheelBri plays them on your rig
   through its safety limits. No Thrustmaster software is needed.
 - **With Thrustmaster's driver installed**: Start presents the RGT as the real wheel (its real descriptor, so
-  Thrustmaster's driver recognises it), and its force feedback driver drives it. WheelBri logs what that driver sends
-  (`wheelbri-driver-*.log`, "rgt-tm" lines) but does not read it yet, so the game's force feedback may not reach your
-  wheel. The Mapping tab says so (Target RGT, Mode Virtual), and Start does in the log. Needs the drivers from this
-  version (`drivers.sh -Install`, or the installer). WheelBri never changes or removes Thrustmaster's registry entries:
-  its own carry a mark, and only those go at Stop, in the uninstaller and in `clean-pc.ps1`.
+  Thrustmaster's driver recognises it), and its force feedback driver drives it. That driver works the effects out
+  itself and sends one force; WheelBri plays it on your rig through its safety limits (`wheelbri-driver-*.log`, "maker
+  ffb" lines). The Mapping tab says the driver is there (Target RGT, Mode Virtual), and Start does in the log. Needs the
+  drivers from this version (`drivers.sh -Install`, or the installer). Thrustmaster's 2018.FFD.2 registers that driver for 64-bit programs
+  only (Windows 11, 2026-11-23): a 32-bit game such as Race Driver: GRID cannot load it, so it gets no force feedback at
+  all on the RGT while the package is installed; uninstall it for such games, and Windows' driver plays every effect.
+  WheelBri never changes or removes Thrustmaster's registry entries: its own carry a mark, and only those go at Stop, in
+  the uninstaller and in `clean-pc.ps1`.
 - Race Driver: GRID gives the RGT a negative friction (baseFriction -25, for a real RGT's belt and gears), which swings
   a low-friction wheel lock to lock: the Games tab's Game file for GRID puts the G25's 0 there ([games.md](games.md)).
 

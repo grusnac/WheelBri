@@ -92,6 +92,8 @@ G920 only, by themselves while the game runs.
   and the brake on Y or Slider 0, and has no clutch: the layout of **5 axes** with **Levers**, where the levers are a
   second throttle and brake. With Clutch, the clutch pedal (Slider 0) would brake. A test build was taken as the RGT, its
   pedals and menu buttons worked ([target-rgt.md](target-rgt.md)).
+- **RGT with Thrustmaster's driver installed:** no force feedback at all. Its 2018.FFD.2 package registers its force
+  feedback driver for 64-bit programs only, and GRID is 32-bit. Uninstall the package to play GRID on the RGT.
 - **RGT force feedback:** GRID gives the RGT a negative friction (`forcefeedback/devicesetup.xml`, baseFriction -25,
   to lighten a real RGT's belt and gears). On a wheel with little friction of its own, such as a direct drive, it pushes
   the wheel the way it moves: at the start line it swings lock to lock by itself. Games tab, GRID, **Game file**: the
