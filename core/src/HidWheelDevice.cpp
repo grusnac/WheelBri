@@ -273,7 +273,7 @@ constexpr VirtualWheel kMakerWheels[] = {
 static_assert(kVirtualWheels[4].profile == "tm_rgt", "the table's order");
 constexpr std::string_view kMakerSuffix = "-tm";
 
-// The real RGT's report descriptor, as captured (captures/rgt/b653-report-descriptor.hex, 455 bytes): input report
+// The real RGT's report descriptor, as captured (tests/data/rgt/b653-report-descriptor.hex, 455 bytes): input report
 // 0x01 (10 buttons, a 4-bit hat, X 10 bits -512..511, Y, Rz, Slider, Dial 8 bits 0..255), Thrustmaster's vendor
 // output 0x40, its HID PID subset (outputs 0x41-0x4B, features 0x85-0x88), vendor features 0x81 and 0x82.
 constexpr std::array<std::uint8_t, 455> kRgtRealDescriptor = {

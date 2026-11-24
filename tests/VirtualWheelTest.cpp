@@ -240,7 +240,7 @@ TEST(VirtualWheel, TheRgtHasAMakersIdentity) {
 // driver); the features a real one answered at plug-in answered the same, nothing else.
 TEST(VirtualWheel, TheMakersIdentityIsTheRealRgt) {
     const VirtualWheel& maker = *makerVirtualWheel("tm_rgt");
-    std::ifstream in(std::string(WHEELBRI_CONFIG_DIR) + "/../captures/rgt/b653-report-descriptor.hex");
+    std::ifstream in(std::string(WHEELBRI_CONFIG_DIR) + "/../tests/data/rgt/b653-report-descriptor.hex");
     std::vector<std::uint8_t> captured;
     for (unsigned value = 0; in >> std::hex >> value;) captured.push_back(static_cast<std::uint8_t>(value));
     ASSERT_EQ(captured.size(), 455U);

@@ -40,7 +40,7 @@ inline constexpr std::uint16_t kG923ProductId = 0xC26E;
 // The virtual RGT (Thrustmaster RGT Force Feedback Pro Clutch Edition, docs/target-rgt.md): a real one's ids
 // (044F:B653) and product string, the same HID PID block, its 10 buttons, and five axes as games read the real one in
 // its 5-axis mode (VirtualWheel::rgtAxes). Not the real wheel's own descriptor (a cut-down HID PID set that Windows'
-// driver cannot drive, captures/rgt): WheelBri's, so force feedback needs no Thrustmaster software.
+// driver cannot drive, tests/data/rgt): WheelBri's, so force feedback needs no Thrustmaster software.
 inline constexpr std::uint16_t kRgtVendorId = 0x044F;
 inline constexpr std::uint16_t kRgtProductId = 0xB653;
 // The virtual TMX (Thrustmaster TMX PRO Force Feedback, docs/target-tmx.md): a real one's ids (044F:B67F, the PC mode
@@ -112,7 +112,7 @@ struct VirtualWheel {
     // (writeDirectInputEntries, the uninstaller's oemEntries, clean-pc.ps1).
     bool makerDriver = false;
     // The maker's identity (makerVirtualWheel: the RGT's "rgt-tm"): as the real wheel, for the maker's own force
-    // feedback driver, which talks the real wheel's protocol: its report descriptor as captured (captures/rgt), its
+    // feedback driver, which talks the real wheel's protocol: its report descriptor as captured (tests/data/rgt), its
     // input report, and every output and feature report logged by the driver as it comes (not decoded yet); the
     // feature reports a real one answered at plug-in are answered the same (makerFeature).
     bool makerIdentity = false;
@@ -128,7 +128,7 @@ struct VirtualWheel {
 // "tm_rgt-tm"; the same profile, instances, ids and names), used when Thrustmaster's driver is installed
 // (makerFfbDriverInstalled); null for any other profile.
 [[nodiscard]] const VirtualWheel* makerVirtualWheel(std::string_view profile);
-// A feature report the maker's identity answers as the real wheel did at plug-in (captures/rgt: 0x81 01 21 ff ff,
+// A feature report the maker's identity answers as the real wheel did at plug-in (tests/data/rgt: 0x81 01 21 ff ff,
 // 0x82 50 5a, 0x86 00 01, 0x88 00 02): [report ID, data...] into `out`; its size, 0 for any other report (or wheel)
 // or when `out` is too small.
 [[nodiscard]] std::size_t makerFeature(const VirtualWheel& wheel, std::uint8_t reportId, std::span<std::uint8_t> out);
